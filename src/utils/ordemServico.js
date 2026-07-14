@@ -1,19 +1,20 @@
-const letras = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const gerarProximoNumeroOS = (atividades = [], dataLiberacao) => {
+  const [anoCompleto, mes] = String(dataLiberacao || "").split("-");
+  if (!anoCompleto || !mes) return "";
 
-export const gerarCodigoOrdemServico = (atividades = []) => {
-  const codigosExistentes = new Set(
-    atividades.map((atividade) => atividade.codigoOrdemServico).filter(Boolean)
-  );
+  const ano = anoCompleto.slice(-2);
+  const padraoNumeroOS = new RegExp(`^OS${ano}\\d{2}(\\d{4})$`);
+  const maiorSequencia = atividades.reduce((maior, atividade) => {
+    const numeroOS = String(atividade?.numeroOS || "").trim();
+    const resultado = numeroOS.match(padraoNumeroOS);
+    if (!resultado) return maior;
 
-  let codigo = "";
+    const sequencia = Number(resultado[1]);
+    return Number.isFinite(sequencia) && sequencia > maior ? sequencia : maior;
+  }, 0);
 
-  do {
-    const parte = (tamanho) =>
-      Array.from({ length: tamanho }, () => letras[Math.floor(Math.random() * letras.length)]).join("");
-    codigo = `${parte(4)}-${parte(4)}`;
-  } while (codigosExistentes.has(codigo));
-
-  return codigo;
+  const proximaSequencia = String(maiorSequencia + 1).padStart(4, "0");
+  return `OS${ano}${mes.padStart(2, "0")}${proximaSequencia}`;
 };
 
 export const obterStatusOrdemServico = (atividade) =>
@@ -63,7 +64,7 @@ export const montarDescricaoOrdemServico = (atividade, obra) => {
 export const montarPayloadOrdemServico = ({ atividade, obra, construtora }) => {
   const linhas = [
     ["CD LOCACOES"],
-    ["ORDEM DE SERVICO", atividade?.codigoOrdemServico],
+    ["ORDEM DE SERVICO", atividade?.numeroOS],
     ["STATUS", obterStatusOrdemServico(atividade)],
     ["CONSTRUTORA", construtora?.nome || obra?.construtora || atividade?.construtora],
     ["OBRA", obra?.nome || atividade?.obra],

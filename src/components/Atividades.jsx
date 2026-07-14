@@ -7,7 +7,7 @@ import { obterOperacoes, obterRegraOperacao } from "../utils/regrasOperacao";
 import OrdemServico from "./OrdemServico";
 import Contrato from "./documentos/Contrato";
 import { obterTipoContrato } from "../utils/contrato";
-import { gerarCodigoOrdemServico } from "../utils/ordemServico";
+import { gerarProximoNumeroOS } from "../utils/ordemServico";
 
 const filtrosListaIniciais = {
   busca: "",
@@ -491,6 +491,7 @@ export default function Atividades() {
           form.valoresCongelados?.tabelaOrigem || obterTabelaOrigemDaAtividade(form)
         )
       : form.valoresCongelados;
+    const numeroOS = form.numeroOS || (form.dataLiberacao ? gerarProximoNumeroOS(atividades, form.dataLiberacao) : "");
     const novaAtividade = {
       ...form,
       obra: obraSelecionada?.nome || form.obra,
@@ -504,6 +505,7 @@ export default function Atividades() {
       adicionalMensalContrapeso: form.usaContrapeso ? form.adicionalMensalContrapeso : 0,
       ...regrasOperacionais,
       valoresCongelados,
+      numeroOS,
       id: form.id || Date.now(),
       iniciado: form.iniciado || false,
     };
@@ -572,21 +574,8 @@ export default function Atividades() {
   };
 
   const abrirOrdemServico = (item) => {
-    let atividadeAtualizada = item;
-    let listaAtualizada = atividades;
-
-    if (!item.codigoOrdemServico) {
-      const codigoOrdemServico = gerarCodigoOrdemServico(atividades);
-      listaAtualizada = atividades.map((atividade) =>
-        atividade.id === item.id ? { ...atividade, codigoOrdemServico } : atividade
-      );
-      atividadeAtualizada = { ...item, codigoOrdemServico };
-      setAtividades(listaAtualizada);
-      localStorage.setItem("atividades", JSON.stringify(listaAtualizada));
-    }
-
     setDocumentosAbertoId(null);
-    setAtividadeOrdemServico(atividadeAtualizada);
+    setAtividadeOrdemServico(item);
   };
 
   const abrirContrato = (item) => {
@@ -1221,11 +1210,13 @@ export default function Atividades() {
                 {!item.dataLiberacao && (
                   <button
                     onClick={() => {
+                      const dataLiberacao = new Date().toISOString().split("T")[0];
                       const atualizadas = atividades.map((a) =>
                         a.id === item.id
                           ? {
                               ...a,
-                              dataLiberacao: new Date().toISOString().split("T")[0],
+                              dataLiberacao,
+                              numeroOS: a.numeroOS || gerarProximoNumeroOS(atividades, dataLiberacao),
                               valoresCongelados: montarValoresCongelados(a),
                             }
                           : a

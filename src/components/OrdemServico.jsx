@@ -283,6 +283,7 @@ const ViaOrdemServico = ({
   compacto = false,
 }) => {
   const qrSize = compacto ? 88 : 112;
+  const numeroOS = atividade.numeroOS || "";
 
   return (
     <article
@@ -314,7 +315,7 @@ const ViaOrdemServico = ({
         <div className="flex flex-col items-center justify-center text-center leading-tight">
           <h1 className={`${compacto ? "text-xl" : "text-3xl"} font-extrabold tracking-tight`}>ORDEM DE SERVIÇO</h1>
           <p className={`${compacto ? "mx-auto mt-1 w-fit rounded bg-black px-4 py-0.5 text-[11px] text-white" : "mx-auto mt-3 w-fit rounded bg-black px-5 py-1 text-sm text-white"}`}>
-            <span className="os-codigo-os-texto">OS: <strong>{atividade.codigoOrdemServico}</strong></span>
+            <span className="os-codigo-os-texto">OS: <strong>{numeroOS}</strong></span>
           </p>
           <div className={`${compacto ? "mx-auto mt-1 grid max-w-[190px] grid-cols-2 gap-1 text-[8px]" : "mx-auto mt-2 grid max-w-[260px] grid-cols-2 gap-2 text-xs"}`}>
             <div className="flex flex-col justify-center rounded border border-black px-1 py-[2px] text-left leading-[1.15]">
@@ -426,6 +427,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
   const [qrDataUrl, setQrDataUrl] = useState("");
 
   const obra = useMemo(() => obterObraDaAtividade(atividade, obras), [atividade, obras]);
+  const numeroOS = atividade.numeroOS || "";
   const construtora = useMemo(() => {
     const nome = obra?.construtora || atividade?.construtora;
     return construtoras.find((item) => item.nome === nome) || {};
@@ -533,7 +535,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
         adicionarImagemCentralizada(pdf, capturas[0], { x: 0, y: 0, largura: 210, altura: 297 });
       }
 
-      const nome = `ordem-servico-${atividade.codigoOrdemServico || atividade.id}-${vias}via.pdf`;
+      const nome = `ordem-servico-${numeroOS || atividade.id}-${vias}via.pdf`;
       if (baixar) pdf.save(nome);
       return pdf.output("blob");
     } catch (erro) {
@@ -554,10 +556,10 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
   const enviarWhatsApp = async () => {
     const blob = await gerarPdf(1, false);
     if (!blob) return;
-    const arquivo = new File([blob], `ordem-servico-${atividade.codigoOrdemServico || atividade.id}.pdf`, {
+    const arquivo = new File([blob], `ordem-servico-${numeroOS || atividade.id}.pdf`, {
       type: "application/pdf",
     });
-    const texto = `Ordem de Serviço ${atividade.codigoOrdemServico || ""} - ${obra?.nome || atividade.obra || ""}`;
+    const texto = `Ordem de Serviço ${numeroOS} - ${obra?.nome || atividade.obra || ""}`;
 
     if (navigator.canShare?.({ files: [arquivo] })) {
       await navigator.share({ files: [arquivo], title: "Ordem de Serviço", text: texto });
