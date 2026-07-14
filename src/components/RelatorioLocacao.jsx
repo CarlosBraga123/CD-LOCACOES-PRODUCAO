@@ -250,19 +250,23 @@ export default function RelatorioLocacao() {
     });
 
     return Array.from(mapa.values()).map((linha) => {
-      // Usa periodos reais no proporcional; sem periodos, mantem fallback antigo.
       const valorProporcionalPeriodos = linha.periodosLocacao.reduce(
         (total, periodo) => total + Number(periodo.valorProporcional || 0),
         0
       );
-      const valorProporcionalMes =
-        linha.periodosLocacao.length > 0 ? valorProporcionalPeriodos : linha.valorProporcionalMes;
+      const valorMensalPeriodos = linha.periodosLocacao.reduce(
+        (total, periodo) => total + Number(periodo.valorMensal || 0),
+        0
+      );
+      const origensValorPeriodos = linha.periodosLocacao
+        .map((periodo) => periodo.origemValor)
+        .filter(Boolean);
 
       return {
         ...linha,
-        valorMensal: Math.max(0, linha.valorMensal),
-        valorProporcionalMes: Math.max(0, valorProporcionalMes),
-        origemValor: Array.from(linha.origensValor).join(" / ") || "Sem valor",
+        valorMensal: Math.max(0, valorMensalPeriodos),
+        valorProporcionalMes: Math.max(0, valorProporcionalPeriodos),
+        origemValor: Array.from(new Set(origensValorPeriodos)).join(" / ") || "Sem valor",
       };
     }).sort((a, b) => {
       const construtora = a.construtora.localeCompare(b.construtora);
@@ -279,6 +283,7 @@ export default function RelatorioLocacao() {
       Number(linha.entradasMes || 0) === 0 &&
       Number(linha.saidasMes || 0) === 0 &&
       Number(linha.saldoFinal || 0) === 0 &&
+      (!Array.isArray(linha.periodosLocacao) || linha.periodosLocacao.length === 0) &&
       Number(linha.valorMensal || 0) === 0 &&
       Number(linha.valorProporcionalMes || 0) === 0
     );
