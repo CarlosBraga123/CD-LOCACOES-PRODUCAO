@@ -340,7 +340,7 @@ export default function Dashboard({ abrirAtividade }) {
         </div>
         <div className="overflow-x-auto pb-2">
           <div className="grid min-w-[720px] grid-cols-6 gap-4">
-          {faturamentoMeses.map((item) => (
+          {[...faturamentoMeses].reverse().map((item) => (
             <div key={item.mes} className="min-w-0">
               <div className="flex h-36 items-end justify-center gap-1.5 border-b border-gray-200 pb-1">
                 <div

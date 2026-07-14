@@ -54,6 +54,8 @@ const converterValorParaNumero = (valor) => {
 
 export default function Atividades() {
   const topoRef = useRef(null);
+  const atividadeRefs = useRef({});
+  const filtrosAntesLocalizacaoRef = useRef(null);
   const [construtoras, setConstrutoras] = useState([]);
   const [obras, setObras] = useState([]);
   const [atividades, setAtividades] = useState([]);
@@ -62,6 +64,8 @@ export default function Atividades() {
   const [documentosAbertoId, setDocumentosAbertoId] = useState(null);
   const [atividadeOrdemServico, setAtividadeOrdemServico] = useState(null);
   const [atividadeContrato, setAtividadeContrato] = useState(null);
+  const [atividadeParaLocalizarId, setAtividadeParaLocalizarId] = useState(null);
+  const [atividadeDestacadaId, setAtividadeDestacadaId] = useState(null);
   const camposValor = [
     "valorUnitarioServico",
     "adicionalServicoContrapeso",
@@ -111,28 +115,35 @@ export default function Atividades() {
     const obrasSalvas = JSON.parse(localStorage.getItem("obras")) || [];
     setObras(obrasSalvas);
 
-    const atividadeParaEditar = localStorage.getItem("atividadeParaEditar");
-    if (atividadeParaEditar) {
-      const encontrada = dadosSalvos.find((a) => String(a.id) === atividadeParaEditar);
-      if (encontrada) {
-        const atividadeComValores = aplicarValoresCongeladosNoFormulario(encontrada);
-        setValoresEditadosManual(marcarCamposValorPreenchidos(atividadeComValores));
-        setForm({
-          ...atividadeComValores,
-          quantidade: atividadeComValores.quantidade || 1,
-          numerosPatrimonio: ajustarNumerosPatrimonio(
-            atividadeComValores.numerosPatrimonio || [],
-            atividadeComValores.quantidade || 1
-          ),
-          tipoBalancinho: atividadeComValores.tipoBalancinho || "",
-          usaContrapeso: atividadeComValores.usaContrapeso || false,
-          tipoMiniGrua: atividadeComValores.tipoMiniGrua || "",
-        });
-        setTimeout(() => {
-          topoRef.current?.scrollIntoView({ behavior: "smooth" });
-        }, 50);
-      }
+    const atividadeParaLocalizar = localStorage.getItem("atividadeParaLocalizar");
+    if (atividadeParaLocalizar) {
+      setAtividadeParaLocalizarId(atividadeParaLocalizar);
+      localStorage.removeItem("atividadeParaLocalizar");
       localStorage.removeItem("atividadeParaEditar");
+    } else {
+      const atividadeParaEditar = localStorage.getItem("atividadeParaEditar");
+      if (atividadeParaEditar) {
+        const encontrada = dadosSalvos.find((a) => String(a.id) === atividadeParaEditar);
+        if (encontrada) {
+          const atividadeComValores = aplicarValoresCongeladosNoFormulario(encontrada);
+          setValoresEditadosManual(marcarCamposValorPreenchidos(atividadeComValores));
+          setForm({
+            ...atividadeComValores,
+            quantidade: atividadeComValores.quantidade || 1,
+            numerosPatrimonio: ajustarNumerosPatrimonio(
+              atividadeComValores.numerosPatrimonio || [],
+              atividadeComValores.quantidade || 1
+            ),
+            tipoBalancinho: atividadeComValores.tipoBalancinho || "",
+            usaContrapeso: atividadeComValores.usaContrapeso || false,
+            tipoMiniGrua: atividadeComValores.tipoMiniGrua || "",
+          });
+          setTimeout(() => {
+            topoRef.current?.scrollIntoView({ behavior: "smooth" });
+          }, 50);
+        }
+        localStorage.removeItem("atividadeParaEditar");
+      }
     }
   }, []);
 
@@ -717,6 +728,45 @@ export default function Atividades() {
     });
   }, [atividadesOrdenadas, filtrosLista, obras]);
 
+  useEffect(() => {
+    if (!atividadeParaLocalizarId || atividades.length === 0) return;
+
+    const atividadeExiste = atividades.some((atividade) => String(atividade.id) === String(atividadeParaLocalizarId));
+    if (!atividadeExiste) {
+      setAtividadeParaLocalizarId(null);
+      return;
+    }
+
+    const atividadeVisivel = atividadesFiltradas.some(
+      (atividade) => String(atividade.id) === String(atividadeParaLocalizarId)
+    );
+
+    if (!atividadeVisivel) {
+      if (!filtrosAntesLocalizacaoRef.current) {
+        filtrosAntesLocalizacaoRef.current = filtrosLista;
+      }
+      setFiltrosLista(filtrosListaIniciais);
+      return;
+    }
+
+    const elemento = atividadeRefs.current[String(atividadeParaLocalizarId)];
+    if (!elemento) return;
+
+    elemento.scrollIntoView({ behavior: "smooth", block: "center" });
+    setAtividadeDestacadaId(String(atividadeParaLocalizarId));
+
+    const timeout = window.setTimeout(() => {
+      setAtividadeDestacadaId(null);
+      setAtividadeParaLocalizarId(null);
+      if (filtrosAntesLocalizacaoRef.current) {
+        setFiltrosLista(filtrosAntesLocalizacaoRef.current);
+        filtrosAntesLocalizacaoRef.current = null;
+      }
+    }, 3500);
+
+    return () => window.clearTimeout(timeout);
+  }, [atividadeParaLocalizarId, atividades, atividadesFiltradas, filtrosLista]);
+
   return (
     <div className="p-4">
       <div ref={topoRef}></div>
@@ -1155,7 +1205,15 @@ export default function Atividades() {
       return (
         <div
           key={item.id}
-          className="border rounded-xl p-4 shadow flex flex-col gap-2 bg-white"
+          ref={(elemento) => {
+            if (elemento) atividadeRefs.current[String(item.id)] = elemento;
+            else delete atividadeRefs.current[String(item.id)];
+          }}
+          className={`border rounded-xl p-4 shadow flex flex-col gap-2 transition-colors duration-500 ${
+            String(atividadeDestacadaId) === String(item.id)
+              ? "border-blue-500 bg-blue-50 ring-2 ring-blue-300"
+              : "bg-white"
+          }`}
         >
               <strong>{item.servico} - {formatarEquipamento(item)}</strong>
               {item.usaContrapeso && (

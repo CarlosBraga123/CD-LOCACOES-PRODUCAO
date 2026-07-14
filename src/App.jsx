@@ -48,7 +48,7 @@ export default function App() {
   const renderContent = () => {
     switch (selectedPage) {
       case "dashboard": return <Dashboard abrirAtividade={(id) => {
-        localStorage.setItem("atividadeParaEditar", String(id));
+        localStorage.setItem("atividadeParaLocalizar", String(id));
         setSelectedPage("atividades");
       }} />;
       case "construtoras": return <Construtoras />;
