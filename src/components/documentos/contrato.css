@@ -1,0 +1,186 @@
+.contrato-pagina {
+  width: 210mm;
+  height: 297mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  padding: 16mm 30mm 13mm;
+  background: #ffffff;
+  color: #000000;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.35;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+}
+
+.contrato-cabecalho {
+  position: relative;
+  margin-bottom: 18pt;
+  padding-bottom: 9pt;
+  border-bottom: 1px solid #d1d5db;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.contrato-timbrado {
+  padding-right: 34mm;
+}
+
+.contrato-empresa {
+  font-size: 13pt;
+  line-height: 1.1;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.contrato-dados-empresa {
+  margin-top: 2pt;
+  font-size: 8.5pt;
+  line-height: 1.25;
+}
+
+.contrato-detalhe-azul {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28mm;
+  height: 14mm;
+  overflow: hidden;
+}
+
+.contrato-detalhe-azul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-left: 28mm solid transparent;
+  border-top: 14mm solid #0369a1;
+}
+
+.contrato-detalhe-azul::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-left: 16mm solid transparent;
+  border-top: 8mm solid #38bdf8;
+}
+
+.contrato-numero-pagina {
+  position: absolute;
+  right: 1mm;
+  top: 15mm;
+  font-size: 9pt;
+  line-height: 1;
+  color: #4b5563;
+}
+
+.contrato-conteudo {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.35;
+  text-align: justify;
+}
+
+.contrato-titulo {
+  margin: 0 0 16pt;
+  padding-top: 2pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 20pt;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  text-decoration: underline;
+}
+
+.contrato-paragrafo {
+  margin: 0 0 8pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.35;
+  text-align: justify;
+  text-indent: 1.25cm;
+}
+
+.contrato-clausula-titulo {
+  margin: 12pt 0 6pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
+  text-indent: 0;
+  text-transform: uppercase;
+}
+
+.contrato-item,
+.contrato-equipamento,
+.contrato-patrimonio {
+  margin: 0 0 6pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.35;
+  text-align: left;
+  text-indent: 0;
+}
+
+.contrato-equipamento {
+  margin: 4pt 0 8pt 10pt;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.contrato-patrimonio strong {
+  font-weight: 700;
+}
+
+.contrato-data {
+  margin: 18pt 0 0;
+  font-size: 12pt;
+  line-height: 1.35;
+  text-align: center;
+  text-indent: 0;
+}
+
+.contrato-assinaturas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28pt;
+  margin-top: 46pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.contrato-assinatura-linha {
+  padding-top: 7pt;
+  border-top: 1px solid #000000;
+  font-weight: 700;
+}
+
+.contrato-assinatura-cnpj {
+  margin-top: 2pt;
+  font-weight: 400;
+}
+
+.contrato-rodape {
+  margin-top: auto;
+  padding-top: 6pt;
+  border-top: 1px solid #d1d5db;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 8.5pt;
+  line-height: 1.25;
+  text-align: center;
+  color: #374151;
+}
+
+@media print {
+  .contrato-pagina {
+    box-shadow: none;
+  }
+}

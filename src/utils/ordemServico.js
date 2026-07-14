@@ -1,0 +1,81 @@
+const letras = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+export const gerarCodigoOrdemServico = (atividades = []) => {
+  const codigosExistentes = new Set(
+    atividades.map((atividade) => atividade.codigoOrdemServico).filter(Boolean)
+  );
+
+  let codigo = "";
+
+  do {
+    const parte = (tamanho) =>
+      Array.from({ length: tamanho }, () => letras[Math.floor(Math.random() * letras.length)]).join("");
+    codigo = `${parte(4)}-${parte(4)}`;
+  } while (codigosExistentes.has(codigo));
+
+  return codigo;
+};
+
+export const obterStatusOrdemServico = (atividade) =>
+  atividade?.dataLiberacao ? "Executada" : "Agendada";
+
+export const formatarDataOrdemServico = (data) => {
+  if (!data) return "";
+  const [ano, mes, dia] = String(data).split("-");
+  if (!ano || !mes || !dia) return String(data);
+  return `${dia}/${mes}/${ano}`;
+};
+
+export const formatarEquipamentoOrdemServico = (atividade) => {
+  if (!atividade) return "";
+
+  if (atividade.equipamento === "Balancinho") {
+    const tipo = atividade.tipoBalancinho === "Manual" ? "Manual" : "Eletrico";
+    return `Balancinho ${tipo}`;
+  }
+
+  if (atividade.equipamento === "Mini Grua") {
+    if (atividade.tipoMiniGrua === "1T") return "Mini Grua 1 T";
+    if (atividade.tipoMiniGrua === "500kg") return "Mini Grua 500 kg";
+    return "Mini Grua";
+  }
+
+  return atividade.equipamento || "";
+};
+
+export const montarDescricaoOrdemServico = (atividade, obra) => {
+  const quantidade = Number(atividade?.quantidade) || 1;
+  const equipamento = formatarEquipamentoOrdemServico(atividade).toLowerCase();
+  const servico = String(atividade?.servico || "servico").toLowerCase();
+  const partes = [`Executar ${servico} de ${quantidade} ${equipamento || "equipamento"}`];
+
+  if (atividade?.tamanho) partes.push(`de ${atividade.tamanho} metros`);
+  if (atividade?.usaContrapeso) partes.push("com contrapeso");
+  if (atividade?.ancoragem) partes.push(`com ancoragem em ${String(atividade.ancoragem).toLowerCase()}`);
+  if (obra?.nome || atividade?.obra) partes.push(`na obra ${obra?.nome || atividade.obra}`);
+  if (atividade?.dataAgendamento) {
+    partes.push(`com data agendada para ${formatarDataOrdemServico(atividade.dataAgendamento)}`);
+  }
+
+  return `${partes.join(", ")}.`;
+};
+
+export const montarPayloadOrdemServico = ({ atividade, obra, construtora }) => {
+  const linhas = [
+    ["CD LOCACOES"],
+    ["ORDEM DE SERVICO", atividade?.codigoOrdemServico],
+    ["STATUS", obterStatusOrdemServico(atividade)],
+    ["CONSTRUTORA", construtora?.nome || obra?.construtora || atividade?.construtora],
+    ["OBRA", obra?.nome || atividade?.obra],
+    ["SERVICO", atividade?.servico],
+    ["EQUIPAMENTO", formatarEquipamentoOrdemServico(atividade)],
+    ["QUANTIDADE", atividade?.quantidade || 1],
+    ["DATA AGENDADA", formatarDataOrdemServico(atividade?.dataAgendamento)],
+    ["DATA DE LIBERACAO", formatarDataOrdemServico(atividade?.dataLiberacao)],
+  ];
+
+  return linhas
+    .filter(([label, valor]) => label === "CD LOCACOES" || (valor !== undefined && valor !== null && String(valor).trim()))
+    .map(([label, valor]) => (label === "CD LOCACOES" ? label : `${label}: ${valor}`))
+    .join("\n");
+};
