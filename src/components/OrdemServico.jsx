@@ -43,6 +43,11 @@ const obterNumerosPatrimonioValidos = (atividade) =>
     .map((numero) => String(numero || "").trim())
     .filter(Boolean);
 
+const normalizarAlteracaoContrapesoOS = (atividade) => {
+  const valor = String(atividade?.alteracaoContrapeso || "nenhuma").trim().toLowerCase();
+  return ["adicionar", "remover"].includes(valor) ? valor : "nenhuma";
+};
+
 const icones = {
   Construtora: "▦",
   Obra: "▥",
@@ -445,6 +450,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
   const payloadOffline = montarPayloadOrdemServico({ atividade, obra, construtora });
   const isDeslocamento = normalizarServicoOS(atividade?.servico) === "deslocamento";
   const numerosPatrimonioValidos = obterNumerosPatrimonioValidos(atividade);
+  const alteracaoContrapeso = normalizarAlteracaoContrapesoOS(atividade);
 
   useEffect(() => {
     setQrDataUrl("");
@@ -481,6 +487,14 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
         ]
       : [["Tamanho", atividade?.tamanho ? `${atividade.tamanho} m` : ""]]),
     ["Contrapeso", atividade?.usaContrapeso ? "Sim" : ""],
+    ...(alteracaoContrapeso !== "nenhuma"
+      ? [
+          [
+            "Mov. contrapeso",
+            `${alteracaoContrapeso === "adicionar" ? "Adicionar" : "Remover"} ${atividade?.quantidadeContrapeso || 1}`,
+          ],
+        ]
+      : []),
     ["Ancoragem", atividade?.ancoragem],
     ["Capacidade", atividade?.tipoMiniGrua],
     ["Tipo específico", atividade?.tipoBalancinho || atividade?.tipoMiniGrua],

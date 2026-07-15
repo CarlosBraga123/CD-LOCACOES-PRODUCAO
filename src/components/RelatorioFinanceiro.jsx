@@ -39,6 +39,8 @@ export default function RelatorioFinanceiro() {
   };
 
   const formatarEquipamento = (item) => {
+    if (item.tipoMovimentoLocacao === "contrapeso") return "Kit Contrapeso";
+
     if (item.equipamento === "Balancinho") {
       const tipo = item.tipoBalancinho === "Manual" ? "Manual" : "Elétrico";
       return `Balancinho ${tipo}${item.usaContrapeso ? " com Contrapeso" : ""}`;
@@ -147,11 +149,17 @@ export default function RelatorioFinanceiro() {
     const quantidade = obterQuantidade(atividade);
     const chaves = obterChavesLocacao(atividade);
 
+    if (atividade.tipoMovimentoLocacao === "contrapeso") {
+      if (!chaves.adicionalContrapeso) return null;
+      if (tabela.locacoes?.[chaves.adicionalContrapeso] === undefined) return null;
+      return Number(tabela.locacoes[chaves.adicionalContrapeso] || 0) * quantidade;
+    }
+
     if (tabela.locacoes?.[chaves.base] === undefined) return null;
 
     const base = Number(tabela.locacoes[chaves.base] || 0);
     const adicional =
-      atividade.usaContrapeso && chaves.adicionalContrapeso
+      !atividade.tipoMovimentoLocacao && atividade.usaContrapeso && chaves.adicionalContrapeso
         ? Number(tabela.locacoes?.[chaves.adicionalContrapeso] || 0)
         : 0;
 
@@ -159,6 +167,26 @@ export default function RelatorioFinanceiro() {
   };
 
   const obterValorMensalLocacao = (atividade) => {
+    const quantidade = obterQuantidade(atividade);
+
+    if (atividade.tipoMovimentoLocacao === "contrapeso") {
+      if (atividade.valoresCongelados?.adicionalContrapesoLocacao !== undefined) {
+        return {
+          valor: Number(atividade.valoresCongelados.adicionalContrapesoLocacao || 0) * quantidade,
+          origem: "Congelado",
+        };
+      }
+    }
+
+    if (atividade.tipoMovimentoLocacao === "base") {
+      if (atividade.valoresCongelados?.locacaoMensalUnitario !== undefined) {
+        return {
+          valor: Number(atividade.valoresCongelados.locacaoMensalUnitario || 0) * quantidade,
+          origem: "Congelado",
+        };
+      }
+    }
+
     if (atividade.valoresCongelados?.totalLocacaoMensal !== undefined) {
       return {
         valor: Number(atividade.valoresCongelados.totalLocacaoMensal || 0),

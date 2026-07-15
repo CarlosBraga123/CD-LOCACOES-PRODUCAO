@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { atividadePertenceObra } from "../utils/obras";
+import { atividadeEncerraLocacao, atividadeIniciaLocacao, obterMovimentosLocacao } from "../utils/locacaoFinanceira";
 
 export default function DetalhesObra({ abrirAtividade }) {
   const [obras, setObras] = useState([]);
@@ -23,6 +24,8 @@ export default function DetalhesObra({ abrirAtividade }) {
   const calcularAtivos = (obra, equipamento) => {
     return atividades
       .filter((a) => atividadePertenceObra(a, obra) && a.equipamento === equipamento && a.dataLiberacao)
+      .flatMap((atividade) => obterMovimentosLocacao(atividade))
+      .filter((atividade) => !atividade.usaContrapeso)
       .reduce((total, atividade) => {
         const quantidade = Number(atividade.quantidade) || 1;
         const iniciaLocacao =
@@ -39,6 +42,8 @@ export default function DetalhesObra({ abrirAtividade }) {
   };
 
   const formatarGrupoBalancinho = (atividade) => {
+    if (atividade.usaContrapeso) return "Kit Contrapeso";
+
     let nome = "Balancinho Elétrico";
 
     if (atividade.tipoBalancinho === "Manual") nome = "Balancinho Manual";
@@ -49,6 +54,7 @@ export default function DetalhesObra({ abrirAtividade }) {
   const calcularAtivosBalancinho = (obra) => {
     const totais = atividades
       .filter((a) => atividadePertenceObra(a, obra) && a.equipamento === "Balancinho" && a.dataLiberacao)
+      .flatMap((atividade) => obterMovimentosLocacao(atividade))
       .reduce((resultado, atividade) => {
         const quantidade = Number(atividade.quantidade) || 1;
         const iniciaLocacao =
@@ -68,9 +74,8 @@ export default function DetalhesObra({ abrirAtividade }) {
 
     const ordem = [
       "Balancinho Elétrico",
-      "Balancinho Elétrico CONTRAPESO",
       "Balancinho Manual",
-      "Balancinho Manual CONTRAPESO",
+      "Kit Contrapeso",
     ];
 
     return Object.entries(totais)

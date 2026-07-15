@@ -2,12 +2,13 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { db } from "../firebase";
 import { doc, setDoc } from "firebase/firestore";
-import { obterObraDaAtividade, normalizarTexto } from "../utils/obras";
+import { obterChaveObra, obterObraDaAtividade, normalizarTexto } from "../utils/obras";
 import { obterOperacoes, obterRegraOperacao } from "../utils/regrasOperacao";
 import OrdemServico from "./OrdemServico";
 import Contrato from "./documentos/Contrato";
 import { obterTipoContrato } from "../utils/contrato";
 import { gerarProximoNumeroOS } from "../utils/ordemServico";
+import { normalizarAlteracaoContrapeso, obterQuantidadeContrapeso } from "../utils/locacaoFinanceira";
 
 const filtrosListaIniciais = {
   busca: "",
@@ -52,6 +53,19 @@ const converterValorParaNumero = (valor) => {
   return Number.isFinite(numero) ? numero : 0;
 };
 
+const servicoPermiteAlteracaoContrapeso = (servico) =>
+  ["Deslocamento", "Remoção", "Somente recolhimento"].includes(servico);
+
+const servicoEntradaLocacaoInicial = (servico) => ["Instalação", "Somente aluguel"].includes(servico);
+
+const obterQuantidadeContrapesoFormulario = (valor, quantidadePadrao = 1) => {
+  const quantidade = Number(valor);
+  if (!Number.isInteger(quantidade) || quantidade < 1) {
+    return Math.max(1, Number(quantidadePadrao) || 1);
+  }
+  return quantidade;
+};
+
 export default function Atividades() {
   const topoRef = useRef(null);
   const atividadeRefs = useRef({});
@@ -90,6 +104,8 @@ export default function Atividades() {
     ancoragem: "",
     tipoBalancinho: "Eletrico",
     usaContrapeso: false,
+    alteracaoContrapeso: "nenhuma",
+    quantidadeContrapeso: 1,
     tipoMiniGrua: "500kg",
     quantidade: 1,
     numerosPatrimonio: [""],
@@ -136,6 +152,8 @@ export default function Atividades() {
             ),
             tipoBalancinho: atividadeComValores.tipoBalancinho || "",
             usaContrapeso: atividadeComValores.usaContrapeso || false,
+            alteracaoContrapeso: normalizarAlteracaoContrapeso(atividadeComValores),
+            quantidadeContrapeso: atividadeComValores.quantidadeContrapeso || 1,
             tipoMiniGrua: atividadeComValores.tipoMiniGrua || "",
           });
           setTimeout(() => {
@@ -354,6 +372,9 @@ export default function Atividades() {
     const regras = obterRegrasOperacionais(form.servico);
     const tabela = obterTabelaComercialDaObra();
     const quantidade = Number(form.quantidade) || 1;
+    const quantidadeContrapeso = obterQuantidadeContrapesoFormulario(form.quantidadeContrapeso, quantidade);
+    const entradaContrapesoAvulsa =
+      form.equipamento === "Balancinho" && normalizarAlteracaoContrapeso(form) === "adicionar";
     const usandoValoresCongelados = Boolean(form.dataLiberacao && form.valoresCongelados);
     const valorUnitarioServico = regras.cobraServico
       ? obterPrecoServicoDaTabela(tabela)
@@ -366,7 +387,7 @@ export default function Atividades() {
       ? obterPrecoLocacaoDaTabela(tabela)
       : "";
     const adicionalMensalContrapeso =
-      regras.iniciaLocacao && form.equipamento === "Balancinho" && form.usaContrapeso
+      form.equipamento === "Balancinho" && (regras.iniciaLocacao && form.usaContrapeso || entradaContrapesoAvulsa)
         ? obterPrecoAdicionalContrapesoLocacao(tabela)
         : 0;
 
@@ -386,14 +407,16 @@ export default function Atividades() {
       const mensalLocacaoFinal = usandoValoresCongelados || valoresEditadosManual.valorMensalLocacao
         ? atual.valorMensalLocacao
         : valorMensalLocacao;
-      const adicionalLocacaoFinal = form.usaContrapeso
+      const adicionalLocacaoFinal = form.usaContrapeso || entradaContrapesoAvulsa
         ? usandoValoresCongelados || valoresEditadosManual.adicionalMensalContrapeso
           ? atual.adicionalMensalContrapeso
           : adicionalMensalContrapeso
         : 0;
-      const totalLocacaoCalculado = regras.iniciaLocacao
-        ? (converterValorParaNumero(mensalLocacaoFinal) + converterValorParaNumero(adicionalLocacaoFinal)) *
-          quantidade
+      const totalLocacaoCalculado = regras.iniciaLocacao || entradaContrapesoAvulsa
+        ? regras.iniciaLocacao
+          ? (converterValorParaNumero(mensalLocacaoFinal) + converterValorParaNumero(adicionalLocacaoFinal)) *
+            quantidade
+          : converterValorParaNumero(adicionalLocacaoFinal) * quantidadeContrapeso
         : "";
 
       return {
@@ -408,7 +431,7 @@ export default function Atividades() {
         valorMensalLocacao: usandoValoresCongelados || valoresEditadosManual.valorMensalLocacao
           ? atual.valorMensalLocacao
           : valorMensalLocacao,
-        adicionalMensalContrapeso: form.usaContrapeso ? adicionalLocacaoFinal : 0,
+        adicionalMensalContrapeso: form.usaContrapeso || entradaContrapesoAvulsa ? adicionalLocacaoFinal : 0,
         valorTotalMensalLocacao: valoresEditadosManual.valorTotalMensalLocacao
           ? atual.valorTotalMensalLocacao
           : totalLocacaoCalculado,
@@ -422,6 +445,8 @@ export default function Atividades() {
     form.tipoBalancinho,
     form.tipoMiniGrua,
     form.usaContrapeso,
+    form.alteracaoContrapeso,
+    form.quantidadeContrapeso,
     form.quantidade,
     form.dataLiberacao,
     form.valoresCongelados,
@@ -435,6 +460,9 @@ export default function Atividades() {
     tabelaOrigem = obterTabelaOrigemDaAtividade(atividade)
   ) => {
     const regras = obterRegrasOperacionais(atividade.servico, atividade.equipamento);
+    const entradaContrapesoAvulsa =
+      atividade.equipamento === "Balancinho" && normalizarAlteracaoContrapeso(atividade) === "adicionar";
+    const quantidadeContrapeso = obterQuantidadeContrapeso(atividade) || 1;
 
     return {
       servicoUnitario: regras.cobraServico ? Number(atividade.valorUnitarioServico || 0) : 0,
@@ -443,10 +471,13 @@ export default function Atividades() {
         : 0,
       totalServico: regras.cobraServico ? Number(atividade.valorTotalServico || 0) : 0,
       locacaoMensalUnitario: regras.iniciaLocacao ? Number(atividade.valorMensalLocacao || 0) : 0,
-      adicionalContrapesoLocacao: regras.iniciaLocacao
-        ? Number(atividade.usaContrapeso ? atividade.adicionalMensalContrapeso || 0 : 0)
+      adicionalContrapesoLocacao: regras.iniciaLocacao || entradaContrapesoAvulsa
+        ? Number(atividade.usaContrapeso || entradaContrapesoAvulsa ? atividade.adicionalMensalContrapeso || 0 : 0)
         : 0,
-      totalLocacaoMensal: regras.iniciaLocacao ? Number(atividade.valorTotalMensalLocacao || 0) : 0,
+      totalLocacaoMensal: regras.iniciaLocacao || entradaContrapesoAvulsa
+        ? Number(atividade.valorTotalMensalLocacao || 0) ||
+          Number(atividade.adicionalMensalContrapeso || 0) * quantidadeContrapeso
+        : 0,
       quantidade: Number(atividade.quantidade) || 1,
       tabelaOrigem,
       dataCongelamento,
@@ -477,6 +508,57 @@ export default function Atividades() {
     };
   };
 
+  const calcularContrapesosAtivosAte = (atividadeReferencia, dataReferencia) => {
+    if (!dataReferencia) return 0;
+
+    const chaveObraReferencia = obterChaveObra(atividadeReferencia);
+
+    return atividades
+      .filter((atividade) => {
+        if (!atividade.dataLiberacao || atividade.equipamento !== "Balancinho") return false;
+        if (String(atividade.id) === String(atividadeReferencia.id)) return false;
+        if (atividade.dataLiberacao > dataReferencia) return false;
+        return obterChaveObra(atividade) === chaveObraReferencia;
+      })
+      .reduce((total, atividade) => {
+        const quantidade = Number(atividade.quantidade) || 1;
+        const alteracaoContrapeso = normalizarAlteracaoContrapeso(atividade);
+        const quantidadeContrapeso = obterQuantidadeContrapeso(atividade);
+
+        if (servicoEntradaLocacaoInicial(atividade.servico) && atividade.usaContrapeso) {
+          return total + quantidade;
+        }
+
+        if (alteracaoContrapeso === "adicionar") return total + quantidadeContrapeso;
+        if (alteracaoContrapeso === "remover") return total - quantidadeContrapeso;
+
+        return total;
+      }, 0);
+  };
+
+  const validarContrapeso = (atividade) => {
+    if (atividade.equipamento !== "Balancinho") return true;
+
+    const alteracaoContrapeso = normalizarAlteracaoContrapeso(atividade);
+    if (alteracaoContrapeso === "nenhuma") return true;
+
+    const quantidadeContrapeso = Number(atividade.quantidadeContrapeso);
+    if (!Number.isInteger(quantidadeContrapeso) || quantidadeContrapeso < 1) {
+      alert("Informe uma quantidade de contrapesos inteira e maior que zero.");
+      return false;
+    }
+
+    if (alteracaoContrapeso === "remover" && atividade.dataLiberacao) {
+      const ativos = calcularContrapesosAtivosAte(atividade, atividade.dataLiberacao);
+      if (quantidadeContrapeso > ativos) {
+        alert(`Nao e possivel remover ${quantidadeContrapeso} contrapeso(s). Existem ${ativos} ativo(s) na obra ate a data da atividade.`);
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   const salvar = () => {
     const camposObrigatorios = [
       { nome: "Construtora", valor: form.construtora },
@@ -493,11 +575,19 @@ export default function Atividades() {
       return;
     }
 
+    if (!validarContrapeso(form)) return;
+
     const regrasOperacionais = obterRegraOperacionalSegura(form.equipamento, form.servico);
     const obraSelecionada = obterObraDaAtividade(form, obras);
+    const alteracaoContrapeso = form.equipamento === "Balancinho" && servicoPermiteAlteracaoContrapeso(form.servico)
+      ? normalizarAlteracaoContrapeso(form)
+      : "nenhuma";
+    const quantidadeContrapeso = alteracaoContrapeso === "nenhuma"
+      ? 1
+      : obterQuantidadeContrapesoFormulario(form.quantidadeContrapeso, form.quantidade);
     const valoresCongelados = form.dataLiberacao
       ? montarValoresCongelados(
-          form,
+          { ...form, alteracaoContrapeso, quantidadeContrapeso },
           form.valoresCongelados?.dataCongelamento || new Date().toISOString(),
           form.valoresCongelados?.tabelaOrigem || obterTabelaOrigemDaAtividade(form)
         )
@@ -508,12 +598,15 @@ export default function Atividades() {
       obra: obraSelecionada?.nome || form.obra,
       obraId: obraSelecionada?.id || form.obraId || "",
       quantidade: Number(form.quantidade) || 1,
+      alteracaoContrapeso,
+      quantidadeContrapeso,
       numerosPatrimonio: normalizarNumerosPatrimonio(
         form.numerosPatrimonio || [],
         Number(form.quantidade) || 1
       ),
       adicionalServicoContrapeso: form.usaContrapeso ? form.adicionalServicoContrapeso : 0,
-      adicionalMensalContrapeso: form.usaContrapeso ? form.adicionalMensalContrapeso : 0,
+      adicionalMensalContrapeso:
+        form.usaContrapeso || alteracaoContrapeso === "adicionar" ? form.adicionalMensalContrapeso : 0,
       ...regrasOperacionais,
       valoresCongelados,
       numeroOS,
@@ -540,6 +633,8 @@ export default function Atividades() {
       ancoragem: "",
       tipoBalancinho: "Eletrico",
       usaContrapeso: false,
+      alteracaoContrapeso: "nenhuma",
+      quantidadeContrapeso: 1,
       tipoMiniGrua: "500kg",
       quantidade: 1,
       numerosPatrimonio: [""],
@@ -570,6 +665,8 @@ export default function Atividades() {
       ),
       tipoBalancinho: atividadeComValores.tipoBalancinho || "",
       usaContrapeso: atividadeComValores.usaContrapeso || false,
+      alteracaoContrapeso: normalizarAlteracaoContrapeso(atividadeComValores),
+      quantidadeContrapeso: atividadeComValores.quantidadeContrapeso || 1,
       tipoMiniGrua: atividadeComValores.tipoMiniGrua || "",
     });
     setTimeout(() => {
@@ -613,6 +710,11 @@ export default function Atividades() {
   const regrasFormulario = obterRegrasOperacionais(form.servico);
   const servicosPermitidos = obterServicosPermitidos(form.equipamento);
   const obraSelecionadaNoFormulario = obterObraDaAtividade(form, obras);
+  const alteracaoContrapesoFormulario = normalizarAlteracaoContrapeso(form);
+  const entradaContrapesoAvulsaFormulario =
+    form.equipamento === "Balancinho" && alteracaoContrapesoFormulario === "adicionar";
+  const mostrarUsaContrapesoFormulario =
+    form.equipamento === "Balancinho" && servicoEntradaLocacaoInicial(form.servico);
 
   const formatarEquipamento = (item) => {
     if (item.equipamento === "Mini Grua") {
@@ -819,6 +921,8 @@ export default function Atividades() {
               ancoragem: "",
               tipoBalancinho: equipamento === "Balancinho" ? form.tipoBalancinho || "Eletrico" : "",
               usaContrapeso: equipamento === "Balancinho" ? form.usaContrapeso || false : false,
+              alteracaoContrapeso: equipamento === "Balancinho" ? form.alteracaoContrapeso || "nenhuma" : "nenhuma",
+              quantidadeContrapeso: equipamento === "Balancinho" ? form.quantidadeContrapeso || 1 : 1,
               tipoMiniGrua: equipamento === "Mini Grua" ? form.tipoMiniGrua || "500kg" : "",
             });
           }}
@@ -841,29 +945,6 @@ export default function Atividades() {
               <option value="Manual">Manual</option>
             </select>
 
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={Boolean(form.usaContrapeso)}
-                onChange={(e) => {
-                  const usaContrapeso = e.target.checked;
-                  setForm({
-                    ...form,
-                    usaContrapeso,
-                    adicionalServicoContrapeso: usaContrapeso ? form.adicionalServicoContrapeso : 0,
-                    adicionalMensalContrapeso: usaContrapeso ? form.adicionalMensalContrapeso : 0,
-                  });
-                  if (!usaContrapeso) {
-                    setValoresEditadosManual((atuais) => ({
-                      ...atuais,
-                      adicionalServicoContrapeso: false,
-                      adicionalMensalContrapeso: false,
-                    }));
-                  }
-                }}
-              />
-              Usa contrapeso?
-            </label>
           </>
         )}
 
@@ -881,7 +962,21 @@ export default function Atividades() {
 
         <select
           value={form.servico ?? ""}
-          onChange={(e) => setForm({ ...form, servico: e.target.value })}
+          onChange={(e) => {
+            const servico = e.target.value;
+            const permiteUsoInicialContrapeso = servicoEntradaLocacaoInicial(servico);
+            setForm({
+              ...form,
+              servico,
+              usaContrapeso: permiteUsoInicialContrapeso ? form.usaContrapeso : false,
+              adicionalServicoContrapeso: permiteUsoInicialContrapeso ? form.adicionalServicoContrapeso : 0,
+              adicionalMensalContrapeso: permiteUsoInicialContrapeso ? form.adicionalMensalContrapeso : 0,
+              alteracaoContrapeso: servicoPermiteAlteracaoContrapeso(servico)
+                ? form.alteracaoContrapeso || "nenhuma"
+                : "nenhuma",
+              quantidadeContrapeso: form.quantidadeContrapeso || form.quantidade || 1,
+            });
+          }}
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
         >
           <option value="">Serviço</option>
@@ -890,6 +985,31 @@ export default function Atividades() {
           ))}
         </select>
 
+        {mostrarUsaContrapesoFormulario && (
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={Boolean(form.usaContrapeso)}
+              onChange={(e) => {
+                const usaContrapeso = e.target.checked;
+                setForm({
+                  ...form,
+                  usaContrapeso,
+                  adicionalServicoContrapeso: usaContrapeso ? form.adicionalServicoContrapeso : 0,
+                  adicionalMensalContrapeso: usaContrapeso ? form.adicionalMensalContrapeso : 0,
+                });
+                if (!usaContrapeso) {
+                  setValoresEditadosManual((atuais) => ({
+                    ...atuais,
+                    adicionalServicoContrapeso: false,
+                    adicionalMensalContrapeso: false,
+                  }));
+                }
+              }}
+            />
+            Usa contrapeso?
+          </label>
+        )}
         {form.equipamento === "Balancinho" &&
           form.servico !== "" &&
           form.servico !== "Deslocamento" && (
@@ -957,9 +1077,81 @@ export default function Atividades() {
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
         />
 
+        {form.equipamento === "Balancinho" && servicoPermiteAlteracaoContrapeso(form.servico) && (
+          <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
+            <h3 className="text-sm font-semibold">Contrapeso</h3>
+            {form.servico === "Deslocamento" ? (
+              <div className="flex flex-wrap gap-3 text-sm">
+                {[
+                  ["nenhuma", "Sem alteração"],
+                  ["adicionar", "Adicionar contrapeso"],
+                  ["remover", "Remover contrapeso"],
+                ].map(([valor, rotulo]) => (
+                  <label key={valor} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="alteracaoContrapeso"
+                      value={valor}
+                      checked={normalizarAlteracaoContrapeso(form) === valor}
+                      onChange={() =>
+                        setForm({
+                          ...form,
+                          alteracaoContrapeso: valor,
+                          quantidadeContrapeso: form.quantidadeContrapeso || form.quantidade || 1,
+                        })
+                      }
+                    />
+                    {rotulo}
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3 text-sm">
+                {[
+                  ["nenhuma", "Não"],
+                  ["remover", "Sim"],
+                ].map(([valor, rotulo]) => (
+                  <label key={valor} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="alteracaoContrapeso"
+                      value={valor}
+                      checked={normalizarAlteracaoContrapeso(form) === valor}
+                      onChange={() =>
+                        setForm({
+                          ...form,
+                          alteracaoContrapeso: valor,
+                          quantidadeContrapeso: form.quantidadeContrapeso || form.quantidade || 1,
+                        })
+                      }
+                    />
+                    {rotulo}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="min-h-[70px]">
+              {normalizarAlteracaoContrapeso(form) !== "nenhuma" && (
+                <label className="block text-sm font-medium">
+                  Quantidade de contrapesos
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={form.quantidadeContrapeso ?? 1}
+                    onChange={(e) => setForm({ ...form, quantidadeContrapeso: e.target.value })}
+                    className="mt-1 w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
           <h3 className="text-sm font-semibold">Números de patrimônio</h3>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3">
             {ajustarNumerosPatrimonio(form.numerosPatrimonio || [], form.quantidade || 1).map((numero, indice) => (
               <label key={indice} className="text-sm font-medium">
                 Patrimônio {indice + 1}
@@ -1008,7 +1200,7 @@ export default function Atividades() {
           </div>
         )}
 
-        {form.servico && regrasFormulario.iniciaLocacao && (
+        {form.servico && (regrasFormulario.iniciaLocacao || entradaContrapesoAvulsaFormulario) && (
           <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
             <h3 className="text-sm font-semibold">Valores da Locação</h3>
 
@@ -1020,7 +1212,7 @@ export default function Atividades() {
               className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
             />
 
-            {form.usaContrapeso && (
+            {(form.usaContrapeso || entradaContrapesoAvulsaFormulario) && (
               <>
                 <label className="text-sm font-medium">Adicional mensal contrapeso</label>
                 <input
@@ -1075,7 +1267,7 @@ export default function Atividades() {
         />
         <button
           onClick={salvar}
-          className="bg-blue-500 text-white p-2 rounded-xl shadow"
+          className="w-full bg-blue-500 text-white p-2 rounded-xl shadow"
         >
           Salvar
         </button>
@@ -1221,6 +1413,11 @@ export default function Atividades() {
                   CONTRAPESO
                 </span>
               )}
+              {normalizarAlteracaoContrapeso(item) !== "nenhuma" && (
+                <span className="inline-block w-fit rounded bg-yellow-100 px-2 py-1 text-xs font-semibold text-yellow-900">
+                  Contrapeso: {normalizarAlteracaoContrapeso(item) === "adicionar" ? "adicionar" : "remover"} {item.quantidadeContrapeso || 1}
+                </span>
+              )}
               <span className="text-xs font-semibold text-gray-500">
   Status: {item.dataLiberacao
     ? "CONCLUÍDO"
@@ -1269,13 +1466,15 @@ export default function Atividades() {
                   <button
                     onClick={() => {
                       const dataLiberacao = new Date().toISOString().split("T")[0];
+                      const atividadeLiberada = { ...item, dataLiberacao };
+                      if (!validarContrapeso(atividadeLiberada)) return;
                       const atualizadas = atividades.map((a) =>
                         a.id === item.id
                           ? {
                               ...a,
                               dataLiberacao,
                               numeroOS: a.numeroOS || gerarProximoNumeroOS(atividades, dataLiberacao),
-                              valoresCongelados: montarValoresCongelados(a),
+                              valoresCongelados: montarValoresCongelados(atividadeLiberada),
                             }
                           : a
                       );
@@ -1366,3 +1565,4 @@ export default function Atividades() {
     );
   }
   
+

@@ -1,6 +1,57 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { calcularPeriodosLocacao } from "../utils/locacaoFinanceira";
+import * as XLSX from "xlsx";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import {
+  calcularPeriodosLocacao,
+  obterMovimentosLocacao,
+} from "../utils/locacaoFinanceira";
 import { normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
+
+const normalizarCategoriaLocacao = (valor) =>
+  normalizarTexto(valor).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const categoriasResumoLocacao = [
+  {
+    chave: "balancinho-eletrico",
+    rotulo: "Balancinhos Elétricos",
+    corresponde: (equipamento) =>
+      normalizarCategoriaLocacao(equipamento).includes("balancinho") &&
+      normalizarCategoriaLocacao(equipamento).includes("eletrico"),
+  },
+  {
+    chave: "balancinho-manual",
+    rotulo: "Balancinhos Manuais",
+    corresponde: (equipamento) =>
+      normalizarCategoriaLocacao(equipamento).includes("balancinho") &&
+      normalizarCategoriaLocacao(equipamento).includes("manual"),
+  },
+  {
+    chave: "mini-grua",
+    rotulo: "Mini Gruas",
+    corresponde: (equipamento) => normalizarCategoriaLocacao(equipamento).startsWith("mini grua"),
+  },
+  {
+    chave: "kit-contrapeso",
+    rotulo: "Kits Contrapeso",
+    corresponde: (equipamento) => normalizarCategoriaLocacao(equipamento) === "kit contrapeso",
+  },
+];
+
+const criarResumoCategoriasLocacao = (linhas, { ocultarZerados = false } = {}) => {
+  const itens = categoriasResumoLocacao.map((categoria) => ({
+    ...categoria,
+    valor: linhas
+      .filter((linha) => categoria.corresponde(linha.equipamento || ""))
+      .reduce((total, linha) => total + Number(linha.valorProporcionalMes || 0), 0),
+  }));
+  const itensVisiveis = ocultarZerados ? itens.filter((item) => item.valor > 0) : itens;
+
+  return {
+    itens: itensVisiveis,
+    total: itens.reduce((total, item) => total + item.valor, 0),
+  };
+};
 
 export default function RelatorioLocacao() {
   const [atividades, setAtividades] = useState([]);
@@ -8,6 +59,8 @@ export default function RelatorioLocacao() {
   const [visualizacao, setVisualizacao] = useState("data");
   const [mostrarZerados, setMostrarZerados] = useState(false);
   const [linhasExpandidas, setLinhasExpandidas] = useState({});
+  const [resumosObraExpandidos, setResumosObraExpandidos] = useState({});
+  const [exportacaoPdfAtiva, setExportacaoPdfAtiva] = useState(false);
 
   useEffect(() => {
     setAtividades(JSON.parse(localStorage.getItem("atividades") || "[]"));
@@ -50,6 +103,8 @@ export default function RelatorioLocacao() {
 
     // Identificacao visual dos equipamentos.
     const formatarEquipamento = (atividade) => {
+      if (atividade.tipoMovimentoLocacao === "contrapeso") return "Kit Contrapeso";
+
       if (atividade.equipamento === "Mini Grua") {
         return atividade.tipoMiniGrua ? `Mini Grua ${atividade.tipoMiniGrua}` : "Mini Grua";
       }
@@ -133,11 +188,17 @@ export default function RelatorioLocacao() {
       const quantidade = Number(atividade.quantidade) || 1;
       const chaves = obterChavesLocacao(atividade);
 
+      if (atividade.tipoMovimentoLocacao === "contrapeso") {
+        if (!chaves.adicionalContrapeso) return null;
+        if (tabela.locacoes?.[chaves.adicionalContrapeso] === undefined) return null;
+        return Number(tabela.locacoes[chaves.adicionalContrapeso] || 0) * quantidade;
+      }
+
       if (tabela.locacoes?.[chaves.base] === undefined) return null;
 
       const base = Number(tabela.locacoes[chaves.base] || 0);
       const adicional =
-        atividade.usaContrapeso && chaves.adicionalContrapeso
+        !atividade.tipoMovimentoLocacao && atividade.usaContrapeso && chaves.adicionalContrapeso
           ? Number(tabela.locacoes?.[chaves.adicionalContrapeso] || 0)
           : 0;
 
@@ -145,6 +206,26 @@ export default function RelatorioLocacao() {
     };
 
     const obterValorMensalLocacao = (atividade) => {
+      const quantidade = Number(atividade.quantidade) || 1;
+
+      if (atividade.tipoMovimentoLocacao === "contrapeso") {
+        if (atividade.valoresCongelados?.adicionalContrapesoLocacao !== undefined) {
+          return {
+            valor: Number(atividade.valoresCongelados.adicionalContrapesoLocacao || 0) * quantidade,
+            origem: "Congelado",
+          };
+        }
+      }
+
+      if (atividade.tipoMovimentoLocacao === "base") {
+        if (atividade.valoresCongelados?.locacaoMensalUnitario !== undefined) {
+          return {
+            valor: Number(atividade.valoresCongelados.locacaoMensalUnitario || 0) * quantidade,
+            origem: "Congelado",
+          };
+        }
+      }
+
       if (atividade.valoresCongelados?.totalLocacaoMensal !== undefined) {
         return {
           valor: Number(atividade.valoresCongelados.totalLocacaoMensal || 0),
@@ -183,6 +264,7 @@ export default function RelatorioLocacao() {
     atividades
       .filter((atividade) => atividade.dataLiberacao)
       .sort((a, b) => new Date(a.dataLiberacao) - new Date(b.dataLiberacao))
+      .flatMap((atividade) => obterMovimentosLocacao(atividade))
       .forEach((atividade) => {
         const quantidade = Number(atividade.quantidade) || 1;
         const entrada = atividadeIniciaLocacao(atividade);
@@ -322,6 +404,163 @@ export default function RelatorioLocacao() {
   }, {});
 
   const gruposPorObra = Object.values(dadosPorObra);
+  const resumoCategoriasGeral = criarResumoCategoriasLocacao(dadosVisiveis);
+
+  const formatarMesRelatorio = () => {
+    if (!mesSelecionado) return "";
+    const [ano, mes] = mesSelecionado.split("-");
+    return `${mes}/${ano}`;
+  };
+
+  const renderResumoCategorias = (titulo, resumo, rotuloTotal = "TOTAL GERAL DA LOCAÇÃO") => (
+    <div className="rounded-lg border bg-white p-4 shadow-sm">
+      <h3 className="mb-3 text-sm font-bold uppercase text-gray-700">{titulo}</h3>
+      <div className="space-y-2 text-sm">
+        {resumo.itens.map((item) => (
+          <div key={item.chave} className="flex items-center justify-between gap-4">
+            <span className="text-gray-700">{item.rotulo}</span>
+            <span className="font-semibold text-gray-900">{formatarMoeda(item.valor)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 border-t pt-3">
+        <p className="text-xs font-bold uppercase text-gray-500">{rotuloTotal}</p>
+        <p className="text-xl font-bold text-green-700">{formatarMoeda(resumo.total)}</p>
+      </div>
+    </div>
+  );
+
+  const montarLinhasResumoExcel = (titulo, resumo, rotuloTotal = "TOTAL GERAL DA LOCAÇÃO") => {
+    const linhas = [[titulo]];
+    resumo.itens.forEach((item) => {
+      linhas.push([item.rotulo, item.valor]);
+    });
+    linhas.push([rotuloTotal, resumo.total]);
+    return linhas;
+  };
+
+  const exportarExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const wsData = [[`Relatório de Locação - ${formatarMesRelatorio()}`], []];
+
+    wsData.push(...montarLinhasResumoExcel("Resumo da Locação", resumoCategoriasGeral));
+    wsData.push([]);
+
+    const cabecalho = [
+      "Construtora",
+      "Obra",
+      "Equipamento",
+      "Saldo anterior",
+      "Entradas no mês",
+      "Saídas no mês",
+      "Saldo final",
+      "Valor mensal",
+      "Valor proporcional do mês",
+      "Origem",
+    ];
+
+    if (visualizacao === "obra") {
+      gruposPorObra.forEach((grupo) => {
+        wsData.push([`${grupo.construtora} | ${grupo.obra}`]);
+        wsData.push(cabecalho);
+        grupo.linhas.forEach((linha) => {
+          wsData.push([
+            linha.construtora,
+            linha.obra,
+            linha.equipamento,
+            linha.saldoAnterior,
+            linha.entradasMes,
+            linha.saidasMes,
+            linha.saldoFinal,
+            linha.valorMensal,
+            linha.valorProporcionalMes,
+            linha.origemValor,
+          ]);
+        });
+        wsData.push([]);
+        wsData.push(
+          ...montarLinhasResumoExcel(
+            "Resumo da Locação da Obra",
+            criarResumoCategoriasLocacao(grupo.linhas, { ocultarZerados: true }),
+            "TOTAL DA LOCAÇÃO DA OBRA"
+          )
+        );
+        wsData.push([]);
+      });
+    } else {
+      wsData.push(cabecalho);
+      dadosVisiveis.forEach((linha) => {
+        wsData.push([
+          linha.construtora,
+          linha.obra,
+          linha.equipamento,
+          linha.saldoAnterior,
+          linha.entradasMes,
+          linha.saidasMes,
+          linha.saldoFinal,
+          linha.valorMensal,
+          linha.valorProporcionalMes,
+          linha.origemValor,
+        ]);
+      });
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws["!cols"] = [
+      { wch: 28 },
+      { wch: 30 },
+      { wch: 24 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 24 },
+      { wch: 18 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Locação");
+    XLSX.writeFile(wb, `Relatório de Locação ${formatarMesRelatorio().replace("/", "-")}.xlsx`);
+  };
+
+  const exportarPDF = async () => {
+    const element = document.getElementById("relatorio-locacao-exportacao");
+    if (!element) return;
+
+    setExportacaoPdfAtiva(true);
+
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const canvas = await html2canvas(element, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      logging: false,
+    });
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 8;
+    const imgWidth = pageWidth - margin * 2;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let y = margin;
+    let heightLeft = imgHeight;
+
+    pdf.addImage(imgData, "PNG", margin, y, imgWidth, imgHeight);
+    heightLeft -= pageHeight - margin * 2;
+
+    while (heightLeft > 0) {
+      pdf.addPage();
+      y = margin - (imgHeight - heightLeft);
+      pdf.addImage(imgData, "PNG", margin, y, imgWidth, imgHeight);
+      heightLeft -= pageHeight - margin * 2;
+    }
+
+    pdf.save(`Relatório de Locação ${formatarMesRelatorio().replace("/", "-")}.pdf`);
+    } finally {
+      setExportacaoPdfAtiva(false);
+    }
+  };
 
   // Expansao visual dos periodos, sem interferir nos calculos.
   const obterChaveExpansao = (linha, index, prefixo) =>
@@ -329,6 +568,13 @@ export default function RelatorioLocacao() {
 
   const alternarExpansao = (chave) => {
     setLinhasExpandidas((estadoAtual) => ({
+      ...estadoAtual,
+      [chave]: !estadoAtual[chave],
+    }));
+  };
+
+  const alternarResumoObra = (chave) => {
+    setResumosObraExpandidos((estadoAtual) => ({
       ...estadoAtual,
       [chave]: !estadoAtual[chave],
     }));
@@ -358,7 +604,7 @@ export default function RelatorioLocacao() {
               )}
               <span>
                 {linha.equipamento}
-                {linha.usaContrapeso && (
+                {linha.usaContrapeso && linha.equipamento !== "Kit Contrapeso" && (
                   <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-1 text-xs font-bold text-yellow-900">
                     CONTRAPESO
                   </span>
@@ -388,7 +634,7 @@ export default function RelatorioLocacao() {
                     >
                       <div className="mb-2 font-semibold text-gray-900">
                         {periodo.equipamento}
-                        {periodo.usaContrapeso && (
+                        {periodo.usaContrapeso && periodo.equipamento !== "Kit Contrapeso" && (
                           <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-0.5 text-[10px] font-bold text-yellow-900">
                             CONTRAPESO
                           </span>
@@ -480,7 +726,25 @@ export default function RelatorioLocacao() {
         </label>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={exportarExcel}
+          className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow"
+        >
+          Exportar Excel
+        </button>
+        <button
+          type="button"
+          onClick={exportarPDF}
+          className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow"
+        >
+          Exportar PDF
+        </button>
+      </div>
+
+      <div id="relatorio-locacao-exportacao" className="space-y-4 bg-white">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border bg-white px-4 py-3 shadow-sm">
           <p className="text-xs font-semibold uppercase text-gray-500">Total Valor Mensal</p>
           <p className="text-lg font-semibold text-gray-800">{formatarMoeda(resumoLocacao.totalValorMensal)}</p>
@@ -500,6 +764,8 @@ export default function RelatorioLocacao() {
           <p className="text-lg font-semibold text-orange-700">{resumoLocacao.totalEquipamentosLocados}</p>
         </div>
       </div>
+
+      {renderResumoCategorias("Resumo da Locação", resumoCategoriasGeral)}
 
       <div className="overflow-auto">
         <table className="min-w-full border rounded-xl shadow text-sm">
@@ -525,7 +791,11 @@ export default function RelatorioLocacao() {
                 </td>
               </tr>
             ) : visualizacao === "obra" ? (
-              gruposPorObra.map((grupo, grupoIndex) => (
+              gruposPorObra.map((grupo, grupoIndex) => {
+                const chaveResumoObra = `resumo-${grupo.chaveObra}`;
+                const resumoObraAberto = exportacaoPdfAtiva || !!resumosObraExpandidos[chaveResumoObra];
+
+                return (
                 <Fragment key={`grupo-${grupo.chaveObra}-${grupoIndex}`}>
                   <tr className="bg-gray-50">
                     <td className="px-4 py-2 font-semibold text-gray-700" colSpan="10">
@@ -533,13 +803,33 @@ export default function RelatorioLocacao() {
                     </td>
                   </tr>
                   {grupo.linhas.map((linha, index) => renderLinha(linha, index, `obra-${grupoIndex}`))}
+                  <tr className="border-t bg-white">
+                    <td className="px-4 py-3" colSpan="10">
+                      <button
+                        type="button"
+                        onClick={() => alternarResumoObra(chaveResumoObra)}
+                        className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+                        aria-expanded={resumoObraAberto}
+                      >
+                        {resumoObraAberto ? "-" : "+"} Resumo da Locação da Obra
+                      </button>
+
+                      {resumoObraAberto && renderResumoCategorias(
+                        "Resumo da Locação da Obra",
+                        criarResumoCategoriasLocacao(grupo.linhas, { ocultarZerados: true }),
+                        "TOTAL DA LOCAÇÃO DA OBRA"
+                      )}
+                    </td>
+                  </tr>
                 </Fragment>
-              ))
+                );
+              })
             ) : (
               dadosVisiveis.map((linha, index) => renderLinha(linha, index, "data"))
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

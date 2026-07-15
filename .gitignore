@@ -6,3 +6,5 @@ dist/
 .npm-cache/
 .DS_Store
 Thumbs.db
+.publicador-cd-locacoes.json
+BACKUP_PUBLICADOR/

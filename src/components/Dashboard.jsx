@@ -125,6 +125,8 @@ export default function Dashboard({ abrirAtividade }) {
     );
 
     const formatarEquipamento = (atividade) => {
+      if (atividade.tipoMovimentoLocacao === "contrapeso") return "Kit Contrapeso";
+
       if (atividade.equipamento === "Mini Grua") {
         return atividade.tipoMiniGrua ? `Mini Grua ${atividade.tipoMiniGrua}` : "Mini Grua";
       }
@@ -166,16 +168,44 @@ export default function Dashboard({ abrirAtividade }) {
 
     const calcularValorLocacaoPorTabela = (atividade, tabela) => {
       const chaves = obterChavesLocacao(atividade);
+      const quantidade = obterQuantidade(atividade);
+
+      if (atividade.tipoMovimentoLocacao === "contrapeso") {
+        if (!chaves.adicionalContrapeso) return null;
+        if (tabela.locacoes?.[chaves.adicionalContrapeso] === undefined) return null;
+        return Number(tabela.locacoes[chaves.adicionalContrapeso] || 0) * quantidade;
+      }
+
       if (tabela.locacoes?.[chaves.base] === undefined) return null;
       const base = Number(tabela.locacoes[chaves.base] || 0);
       const adicional =
-        atividade.usaContrapeso && chaves.adicionalContrapeso
+        !atividade.tipoMovimentoLocacao && atividade.usaContrapeso && chaves.adicionalContrapeso
           ? Number(tabela.locacoes?.[chaves.adicionalContrapeso] || 0)
           : 0;
-      return (base + adicional) * obterQuantidade(atividade);
+      return (base + adicional) * quantidade;
     };
 
     const obterValorMensalLocacao = (atividade) => {
+      const quantidade = obterQuantidade(atividade);
+
+      if (atividade.tipoMovimentoLocacao === "contrapeso") {
+        if (atividade.valoresCongelados?.adicionalContrapesoLocacao !== undefined) {
+          return {
+            valor: Number(atividade.valoresCongelados.adicionalContrapesoLocacao || 0) * quantidade,
+            origem: "Congelado",
+          };
+        }
+      }
+
+      if (atividade.tipoMovimentoLocacao === "base") {
+        if (atividade.valoresCongelados?.locacaoMensalUnitario !== undefined) {
+          return {
+            valor: Number(atividade.valoresCongelados.locacaoMensalUnitario || 0) * quantidade,
+            origem: "Congelado",
+          };
+        }
+      }
+
       if (atividade.valoresCongelados?.totalLocacaoMensal !== undefined) {
         return { valor: Number(atividade.valoresCongelados.totalLocacaoMensal || 0), origem: "Congelado" };
       }
