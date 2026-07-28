@@ -44,8 +44,16 @@ export const formatarEquipamentoOrdemServico = (atividade) => {
   return atividade.equipamento || "";
 };
 
+const obterQuantidadeOrdemServico = (atividade) => {
+  const itens = Array.isArray(atividade?.itensEquipamentos)
+    ? atividade.itensEquipamentos
+    : [];
+  if (itens.length > 0) return itens.length;
+  return Number(atividade?.quantidade) || 1;
+};
+
 export const montarDescricaoOrdemServico = (atividade, obra) => {
-  const quantidade = Number(atividade?.quantidade) || 1;
+  const quantidade = obterQuantidadeOrdemServico(atividade);
   const equipamento = formatarEquipamentoOrdemServico(atividade).toLowerCase();
   const servico = String(atividade?.servico || "servico").toLowerCase();
   const partes = [`Executar ${servico} de ${quantidade} ${equipamento || "equipamento"}`];
@@ -70,7 +78,7 @@ export const montarPayloadOrdemServico = ({ atividade, obra, construtora }) => {
     ["OBRA", obra?.nome || atividade?.obra],
     ["SERVICO", atividade?.servico],
     ["EQUIPAMENTO", formatarEquipamentoOrdemServico(atividade)],
-    ["QUANTIDADE", atividade?.quantidade || 1],
+    ["QUANTIDADE", obterQuantidadeOrdemServico(atividade)],
     ["DATA AGENDADA", formatarDataOrdemServico(atividade?.dataAgendamento)],
     ["DATA DE LIBERACAO", formatarDataOrdemServico(atividade?.dataLiberacao)],
   ];

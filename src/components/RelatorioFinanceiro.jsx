@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { calcularPeriodosLocacao } from "../utils/locacaoFinanceira";
+import {
+  calcularPeriodosLocacao,
+  calcularPeriodosLocacaoIndividuais,
+} from "../utils/locacaoFinanceira";
 import { atividadePertenceObra, normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
 
 export default function RelatorioFinanceiro() {
@@ -309,8 +312,8 @@ export default function RelatorioFinanceiro() {
         .slice(0, 10)
     : "";
   const diasNoMesLocacao = fimMesLocacao ? Number(fimMesLocacao.slice(8, 10)) : 0;
-  const periodosLocacaoFinanceiro = mesLocacao
-    ? calcularPeriodosLocacao({
+  const resultadoLocacoesIndividuais = mesLocacao
+    ? calcularPeriodosLocacaoIndividuais({
         atividadesBase: atividadesBaseLocacao,
         inicioMes: inicioMesLocacao,
         fimMes: fimMesLocacao,
@@ -319,7 +322,31 @@ export default function RelatorioFinanceiro() {
         formatarEquipamento,
         obterValorMensalLocacao,
       })
+    : {
+        periodos: [],
+        atividadesIndividualizadas: new Set(),
+      };
+  const atividadesLegadasLocacao = atividadesBaseLocacao.filter(
+    (atividade) =>
+      !resultadoLocacoesIndividuais.atividadesIndividualizadas.has(
+        String(atividade.id)
+      )
+  );
+  const periodosLocacaoLegados = mesLocacao
+    ? calcularPeriodosLocacao({
+        atividadesBase: atividadesLegadasLocacao,
+        inicioMes: inicioMesLocacao,
+        fimMes: fimMesLocacao,
+        diasNoMes: diasNoMesLocacao,
+        obras,
+        formatarEquipamento,
+        obterValorMensalLocacao,
+      })
     : [];
+  const periodosLocacaoFinanceiro = [
+    ...resultadoLocacoesIndividuais.periodos,
+    ...periodosLocacaoLegados,
+  ];
   const totalLocacoes = periodosLocacaoFinanceiro.reduce((acc, periodo) => {
     return acc + Number(periodo.valorProporcional || 0);
   }, 0);
@@ -507,6 +534,38 @@ export default function RelatorioFinanceiro() {
                       </td>
                       <td className="px-3 py-2 text-center text-xs text-gray-500">
                         {formatarOrigemValor(obterValorServico(item).origem)}
+                      </td>
+                    </tr>
+                  ))}
+                  {periodosLocacaoFinanceiro.map((periodo, indice) => (
+                    <tr
+                      key={
+                        periodo.idUnidade ||
+                        `locacao-${periodo.atividadeInicioId || "sem-inicio"}-${
+                          periodo.atividadeFimId || "aberto"
+                        }-${indice}`
+                      }
+                      className="border-t bg-green-50/40"
+                    >
+                      <td className="px-3 py-2">
+                        {periodo.dataInicio?.split("-").reverse().join("/")}
+                      </td>
+                      <td className="px-3 py-2 break-words">
+                        {periodo.construtora}
+                      </td>
+                      <td className="px-3 py-2 break-words">{periodo.obra}</td>
+                      <td className="px-3 py-2 break-words">
+                        {periodo.equipamento}
+                      </td>
+                      <td className="px-3 py-2 break-words">Locação</td>
+                      <td className="px-3 py-2">
+                        {periodo.diasLocados} dia(s)
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        {formatarMoeda(periodo.valorProporcional)}
+                      </td>
+                      <td className="px-3 py-2 text-center text-xs text-gray-500">
+                        {formatarOrigemValor(periodo.origemValor)}
                       </td>
                     </tr>
                   ))}

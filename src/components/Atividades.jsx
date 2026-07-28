@@ -9,6 +9,7 @@ import Contrato from "./documentos/Contrato";
 import { obterTipoContrato } from "../utils/contrato";
 import { gerarProximoNumeroOS } from "../utils/ordemServico";
 import { normalizarAlteracaoContrapeso, obterQuantidadeContrapeso } from "../utils/locacaoFinanceira";
+import { obterUnidadesEquipamentosAtivos } from "../utils/equipamentosAtivos";
 
 const filtrosListaIniciais = {
   busca: "",
@@ -66,10 +67,79 @@ const obterQuantidadeContrapesoFormulario = (valor, quantidadePadrao = 1) => {
   return quantidade;
 };
 
-export default function Atividades() {
+const gerarIdItemEquipamento = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `item-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const permiteItensEquipamentos = (equipamento, servico) =>
+  (equipamento === "Balancinho" &&
+    ["Instalação", "Somente aluguel"].includes(servico)) ||
+  (equipamento === "Mini Grua" && servico === "Instalação");
+
+const servicoSelecionaUnidadesAtivas = (servico) =>
+  [
+    "Manutenção",
+    "Deslocamento",
+    "Remoção",
+    "Somente recolhimento",
+    "Ascensão",
+  ].includes(servico);
+
+const criarItemEquipamentoDosCamposLegados = (atividade, indice = 0) => ({
+  idItem: gerarIdItemEquipamento(),
+  equipamento: atividade.equipamento,
+  ...(atividade.equipamento === "Balancinho"
+    ? {
+        tipoBalancinho: atividade.tipoBalancinho || "Eletrico",
+        tamanho: String(atividade.tamanho ?? ""),
+        ancoragem: atividade.ancoragem || "",
+        usaContrapeso: Boolean(atividade.usaContrapeso),
+      }
+    : {
+        tipoMiniGrua: atividade.tipoMiniGrua || "500kg",
+      }),
+  numeroPatrimonio: String(
+    atividade.numerosPatrimonio?.[indice] ?? ""
+  ),
+});
+
+const ajustarItensEquipamentos = (atividade, quantidade) => {
+  const quantidadeFinal = obterQuantidadePatrimonio(quantidade);
+  const itensAtuais = Array.isArray(atividade.itensEquipamentos)
+    ? atividade.itensEquipamentos
+    : [];
+
+  return Array.from({ length: quantidadeFinal }, (_, indice) =>
+    itensAtuais[indice]
+      ? { ...itensAtuais[indice] }
+      : criarItemEquipamentoDosCamposLegados(atividade, indice)
+  );
+};
+
+const criarItemMovimentacao = (unidade) => ({
+  idItem: gerarIdItemEquipamento(),
+  idItemOrigem: unidade.idUnidade,
+  atividadeOrigemId: unidade.atividadeOrigemId,
+  equipamento: unidade.equipamento,
+  tipoBalancinho: unidade.tipoBalancinho || "",
+  tipoMiniGrua: unidade.tipoMiniGrua || "",
+  numeroPatrimonio: unidade.numeroPatrimonio || "",
+  tamanho: unidade.tamanho || "",
+  tamanhoAnterior: unidade.tamanho || "",
+  tamanhoNovo: unidade.tamanho || "",
+  ancoragem: unidade.ancoragem || "",
+  ancoragemAnterior: unidade.ancoragem || "",
+  alteracaoContrapeso: "nenhuma",
+  usaContrapesoAnterior: unidade.usaContrapeso === true,
+  usaContrapeso: unidade.usaContrapeso === true,
+});
+
+export default function Atividades({ contextoNavegacao, limparContextoNavegacao }) {
   const topoRef = useRef(null);
   const atividadeRefs = useRef({});
   const filtrosAntesLocalizacaoRef = useRef(null);
+  const contextoConsumidoRef = useRef(false);
   const [construtoras, setConstrutoras] = useState([]);
   const [obras, setObras] = useState([]);
   const [atividades, setAtividades] = useState([]);
@@ -80,6 +150,7 @@ export default function Atividades() {
   const [atividadeContrato, setAtividadeContrato] = useState(null);
   const [atividadeParaLocalizarId, setAtividadeParaLocalizarId] = useState(null);
   const [atividadeDestacadaId, setAtividadeDestacadaId] = useState(null);
+  const [dadosCarregados, setDadosCarregados] = useState(false);
   const camposValor = [
     "valorUnitarioServico",
     "adicionalServicoContrapeso",
@@ -130,6 +201,7 @@ export default function Atividades() {
 
     const obrasSalvas = JSON.parse(localStorage.getItem("obras")) || [];
     setObras(obrasSalvas);
+    setDadosCarregados(true);
 
     const atividadeParaLocalizar = localStorage.getItem("atividadeParaLocalizar");
     if (atividadeParaLocalizar) {
@@ -142,13 +214,25 @@ export default function Atividades() {
         const encontrada = dadosSalvos.find((a) => String(a.id) === atividadeParaEditar);
         if (encontrada) {
           const atividadeComValores = aplicarValoresCongeladosNoFormulario(encontrada);
+          const quantidadeEdicao = Array.isArray(
+            atividadeComValores.itensEquipamentos
+          )
+            ? atividadeComValores.itensEquipamentos.length
+            : atividadeComValores.quantidade || 1;
           setValoresEditadosManual(marcarCamposValorPreenchidos(atividadeComValores));
           setForm({
             ...atividadeComValores,
-            quantidade: atividadeComValores.quantidade || 1,
+            ...(Array.isArray(atividadeComValores.itensEquipamentos)
+              ? {
+                  itensEquipamentos: atividadeComValores.itensEquipamentos.map(
+                    (item) => ({ ...item })
+                  ),
+                }
+              : {}),
+            quantidade: quantidadeEdicao,
             numerosPatrimonio: ajustarNumerosPatrimonio(
               atividadeComValores.numerosPatrimonio || [],
-              atividadeComValores.quantidade || 1
+              quantidadeEdicao
             ),
             tipoBalancinho: atividadeComValores.tipoBalancinho || "",
             usaContrapeso: atividadeComValores.usaContrapeso || false,
@@ -164,6 +248,86 @@ export default function Atividades() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      !dadosCarregados ||
+      contextoConsumidoRef.current ||
+      contextoNavegacao?.destino !== "atividades"
+    ) {
+      return;
+    }
+
+    if (contextoNavegacao.acao === "localizar-atividade") {
+      contextoConsumidoRef.current = true;
+      setAtividadeParaLocalizarId(contextoNavegacao.atividadeId || null);
+      limparContextoNavegacao?.();
+      return;
+    }
+
+    if (
+      contextoNavegacao.origem !== "construtoras-obras" ||
+      contextoNavegacao.acao !== "nova-atividade"
+    ) {
+      return;
+    }
+
+    const obraId = contextoNavegacao.obraId;
+    let obra = obraId
+      ? obras.find((item) => String(item.id) === String(obraId)) || null
+      : null;
+
+    if (!obra && !obraId && contextoNavegacao.obraNome) {
+      obra =
+        obras.find(
+          (item) =>
+            normalizarTexto(item.nome) === normalizarTexto(contextoNavegacao.obraNome) &&
+            (!contextoNavegacao.construtoraNome ||
+              normalizarTexto(item.construtora) ===
+                normalizarTexto(contextoNavegacao.construtoraNome))
+        ) || null;
+    }
+
+    const construtora =
+      (obra?.construtoraId &&
+        construtoras.find(
+          (item) => String(item.id) === String(obra.construtoraId)
+        )) ||
+      construtoras.find(
+        (item) =>
+          normalizarTexto(item.nome) ===
+          normalizarTexto(obra?.construtora || contextoNavegacao.construtoraNome)
+      ) ||
+      (!obra &&
+        contextoNavegacao.construtoraId &&
+        construtoras.find(
+          (item) => String(item.id) === String(contextoNavegacao.construtoraId)
+        )) ||
+      null;
+
+    contextoConsumidoRef.current = true;
+
+    if (obra) {
+      setForm((formularioAtual) => ({
+        ...formularioAtual,
+        construtora: construtora?.nome || obra.construtora || contextoNavegacao.construtoraNome || "",
+        obra: obra.nome || contextoNavegacao.obraNome || "",
+        obraId: obra.id || "",
+      }));
+
+      requestAnimationFrame(() => {
+        topoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+
+    limparContextoNavegacao?.();
+  }, [
+    contextoNavegacao,
+    construtoras,
+    dadosCarregados,
+    limparContextoNavegacao,
+    obras,
+  ]);
 
   const obterRegrasOperacionais = (servico, equipamento = form.equipamento) => {
     const regra = obterRegraOperacao(equipamento, servico);
@@ -325,7 +489,9 @@ export default function Atividades() {
   const atualizarQuantidade = (valor) => {
     const novaQuantidade = obterQuantidadePatrimonio(valor);
     const quantidadeAtual = obterQuantidadePatrimonio(form.quantidade);
-    const patrimoniosAtuais = form.numerosPatrimonio || [];
+    const patrimoniosAtuais = Array.isArray(form.itensEquipamentos)
+      ? form.itensEquipamentos.map((item) => item.numeroPatrimonio || "")
+      : form.numerosPatrimonio || [];
 
     if (novaQuantidade < quantidadeAtual && patrimoniosAtuais.length > novaQuantidade) {
       const excedentes = patrimoniosAtuais.slice(novaQuantidade).filter((item) => String(item || "").trim());
@@ -340,6 +506,11 @@ export default function Atividades() {
       ...atual,
       quantidade: valor,
       numerosPatrimonio: ajustarNumerosPatrimonio(atual.numerosPatrimonio || [], novaQuantidade),
+      ...((Array.isArray(atual.itensEquipamentos) ||
+        (novaQuantidade > 1 &&
+          permiteItensEquipamentos(atual.equipamento, atual.servico)))
+        ? { itensEquipamentos: ajustarItensEquipamentos(atual, novaQuantidade) }
+        : {}),
     }));
     setValoresEditadosManual((atuais) => ({
       ...atuais,
@@ -357,6 +528,136 @@ export default function Atividades() {
       numerosPatrimonio[indice] = valor;
       return { ...atual, numerosPatrimonio };
     });
+  };
+
+  const atualizarItemEquipamento = (idItem, campo, valor) => {
+    setForm((atual) => {
+      if (!Array.isArray(atual.itensEquipamentos)) return atual;
+
+      const itensEquipamentos = atual.itensEquipamentos.map((item) => {
+        if (item.idItem !== idItem) return { ...item };
+
+        if (campo === "alteracaoContrapeso") {
+          return {
+            ...item,
+            alteracaoContrapeso: valor,
+            usaContrapeso:
+              valor === "adicionar"
+                ? true
+                : valor === "remover"
+                  ? false
+                  : item.usaContrapesoAnterior === true,
+          };
+        }
+
+        return { ...item, [campo]: valor };
+      });
+      const atualizacoesLegadas = {};
+
+      if (campo === "tipoBalancinho") {
+        atualizacoesLegadas.tipoBalancinho = valor;
+        itensEquipamentos.forEach((item) => {
+          item.tipoBalancinho = valor;
+        });
+      }
+
+      if (campo === "tipoMiniGrua") {
+        atualizacoesLegadas.tipoMiniGrua = valor;
+        itensEquipamentos.forEach((item) => {
+          item.tipoMiniGrua = valor;
+        });
+      }
+
+      if (campo === "usaContrapeso") {
+        atualizacoesLegadas.usaContrapeso = itensEquipamentos.some(
+          (item) => item.usaContrapeso === true
+        );
+      }
+
+      return {
+        ...atual,
+        ...(servicoSelecionaUnidadesAtivas(atual.servico)
+          ? sincronizarCamposMovimentacao(itensEquipamentos)
+          : atualizacoesLegadas),
+        itensEquipamentos,
+      };
+    });
+  };
+
+  const sincronizarCamposMovimentacao = (itensEquipamentos) => {
+    const primeiroItem = itensEquipamentos[0] || {};
+    const quantidadeAdicionada = itensEquipamentos.filter(
+      (item) =>
+        String(item.alteracaoContrapeso || "nenhuma").toLowerCase() ===
+        "adicionar"
+    ).length;
+    const quantidadeRemovida = itensEquipamentos.filter(
+      (item) =>
+        String(item.alteracaoContrapeso || "nenhuma").toLowerCase() ===
+        "remover"
+    ).length;
+    const saldoContrapeso = quantidadeAdicionada - quantidadeRemovida;
+    const alteracaoContrapeso =
+      saldoContrapeso > 0
+        ? "adicionar"
+        : saldoContrapeso < 0
+          ? "remover"
+          : "nenhuma";
+
+    return {
+      quantidade: itensEquipamentos.length,
+      numerosPatrimonio: itensEquipamentos.map(
+        (item) => item.numeroPatrimonio || ""
+      ),
+      tipoBalancinho: primeiroItem.tipoBalancinho || "",
+      tipoMiniGrua: primeiroItem.tipoMiniGrua || "",
+      tamanho: primeiroItem.tamanho || "",
+      tamanhoAnterior:
+        primeiroItem.tamanhoAnterior || primeiroItem.tamanho || "",
+      tamanhoNovo: primeiroItem.tamanhoNovo || primeiroItem.tamanho || "",
+      ancoragem: primeiroItem.ancoragem || "",
+      alteracaoContrapeso,
+      quantidadeContrapeso: Math.abs(saldoContrapeso),
+      usaContrapeso: itensEquipamentos.some(
+        (item) => item.usaContrapeso === true
+      ),
+    };
+  };
+
+  const alternarSelecaoUnidadeAtiva = (unidade) => {
+    setForm((atual) => {
+      const itensAtuais = Array.isArray(atual.itensEquipamentos)
+        ? atual.itensEquipamentos
+        : [];
+      const selecionada = itensAtuais.some(
+        (item) => item.idItemOrigem === unidade.idUnidade
+      );
+      const itensEquipamentos = selecionada
+        ? itensAtuais
+            .filter((item) => item.idItemOrigem !== unidade.idUnidade)
+            .map((item) => ({ ...item }))
+        : [
+            ...itensAtuais.map((item) => ({ ...item })),
+            {
+              ...criarItemMovimentacao(unidade),
+              ...(["Remoção", "Somente recolhimento"].includes(atual.servico) &&
+              unidade.usaContrapeso
+                ? { alteracaoContrapeso: "remover" }
+                : {}),
+            },
+          ];
+
+      return {
+        ...atual,
+        ...sincronizarCamposMovimentacao(itensEquipamentos),
+        itensEquipamentos,
+      };
+    });
+    setValoresEditadosManual((atuais) => ({
+      ...atuais,
+      valorTotalServico: false,
+      valorTotalMensalLocacao: false,
+    }));
   };
 
   const marcarCamposValorPreenchidos = (atividade) => {
@@ -559,6 +860,91 @@ export default function Atividades() {
     return true;
   };
 
+  const validarItensEquipamentos = (itens) => {
+    for (let indice = 0; indice < itens.length; indice += 1) {
+      const item = itens[indice];
+      const numeroEquipamento = indice + 1;
+
+      if (!item?.idItem || item.equipamento !== form.equipamento) {
+        alert(`Preencha corretamente os dados do Equipamento ${numeroEquipamento}.`);
+        return false;
+      }
+
+      if (form.equipamento === "Balancinho") {
+        if (!String(item.tipoBalancinho || "").trim()) {
+          alert(`Informe o tipo do Equipamento ${numeroEquipamento}.`);
+          return false;
+        }
+      }
+
+      if (
+        form.equipamento === "Mini Grua" &&
+        !String(item.tipoMiniGrua || "").trim()
+      ) {
+        alert(`Informe o tipo do Equipamento ${numeroEquipamento}.`);
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  const validarItensMovimentacao = (itens) => {
+    if (itens.length === 0) {
+      alert("Selecione ao menos um equipamento ativo.");
+      return false;
+    }
+
+    const identidades = new Set();
+    for (let indice = 0; indice < itens.length; indice += 1) {
+      const item = itens[indice];
+      const numeroEquipamento = indice + 1;
+
+      if (!item.idItemOrigem || identidades.has(item.idItemOrigem)) {
+        alert(`O Equipamento ${numeroEquipamento} está duplicado ou sem vínculo de origem.`);
+        return false;
+      }
+      identidades.add(item.idItemOrigem);
+
+      if (
+        !form.id &&
+        !unidadesAtivasDisponiveis.some(
+          (unidade) => unidade.idUnidade === item.idItemOrigem
+        )
+      ) {
+        alert(`O Equipamento ${numeroEquipamento} não está mais ativo nesta obra.`);
+        return false;
+      }
+
+      if (item.equipamento !== form.equipamento) {
+        alert(`O Equipamento ${numeroEquipamento} pertence a outro tipo de equipamento.`);
+        return false;
+      }
+
+      if (form.servico === "Deslocamento") {
+        const alteracao = String(
+          item.alteracaoContrapeso || "nenhuma"
+        ).toLowerCase();
+        if (
+          alteracao === "adicionar" &&
+          item.usaContrapesoAnterior === true
+        ) {
+          alert(`O Equipamento ${numeroEquipamento} já utiliza contrapeso.`);
+          return false;
+        }
+        if (
+          alteracao === "remover" &&
+          item.usaContrapesoAnterior !== true
+        ) {
+          alert(`O Equipamento ${numeroEquipamento} não utiliza contrapeso.`);
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
   const salvar = () => {
     const camposObrigatorios = [
       { nome: "Construtora", valor: form.construtora },
@@ -575,19 +961,112 @@ export default function Atividades() {
       return;
     }
 
-    if (!validarContrapeso(form)) return;
+    const usaItensEquipamentos =
+      permiteItensEquipamentos(form.equipamento, form.servico) &&
+      Array.isArray(form.itensEquipamentos) &&
+      form.itensEquipamentos.length > 0;
+    const usaItensMovimentacao =
+      servicoSelecionaUnidadesAtivas(form.servico) &&
+      Array.isArray(form.itensEquipamentos);
+    const usaItensIndividuais =
+      usaItensEquipamentos || usaItensMovimentacao;
+    const itensEquipamentos = usaItensIndividuais
+      ? form.itensEquipamentos.map((item) => ({
+          ...item,
+          idItem: item.idItem || gerarIdItemEquipamento(),
+          equipamento: form.equipamento,
+          ...(form.equipamento === "Balancinho"
+            ? {
+                tipoBalancinho: usaItensMovimentacao
+                  ? item.tipoBalancinho || form.tipoBalancinho
+                  : form.tipoBalancinho || item.tipoBalancinho,
+                tamanho: String(item.tamanho ?? "").trim(),
+                tamanhoAnterior: String(
+                  item.tamanhoAnterior ?? item.tamanho ?? ""
+                ).trim(),
+                tamanhoNovo: String(
+                  item.tamanhoNovo ?? item.tamanho ?? ""
+                ).trim(),
+                ancoragem: String(item.ancoragem ?? "").trim(),
+                ancoragemAnterior: String(
+                  item.ancoragemAnterior ?? item.ancoragem ?? ""
+                ).trim(),
+                numeroPatrimonio: String(
+                  item.numeroPatrimonio ?? ""
+                ).trim(),
+                usaContrapeso: item.usaContrapeso === true,
+                usaContrapesoAnterior:
+                  item.usaContrapesoAnterior ?? item.usaContrapeso === true,
+                alteracaoContrapeso: String(
+                  item.alteracaoContrapeso || "nenhuma"
+                ).toLowerCase(),
+              }
+            : {
+                tipoMiniGrua: usaItensMovimentacao
+                  ? item.tipoMiniGrua || form.tipoMiniGrua
+                  : form.tipoMiniGrua || item.tipoMiniGrua,
+                numeroPatrimonio: String(
+                  item.numeroPatrimonio ?? ""
+                ).trim(),
+              }),
+        }))
+      : null;
+
+    if (usaItensEquipamentos && !validarItensEquipamentos(itensEquipamentos)) {
+      return;
+    }
+    if (
+      usaItensMovimentacao &&
+      !validarItensMovimentacao(itensEquipamentos)
+    ) {
+      return;
+    }
+
+    const quantidadeFinal = usaItensIndividuais
+      ? itensEquipamentos.length
+      : Number(form.quantidade) || 1;
+    const usaContrapesoFinal = usaItensIndividuais
+      ? itensEquipamentos.some((item) => item.usaContrapeso === true)
+      : form.usaContrapeso;
+    const formCompatibilidade = {
+      ...form,
+      quantidade: quantidadeFinal,
+      usaContrapeso: usaContrapesoFinal,
+      ...(usaItensIndividuais && form.equipamento === "Balancinho"
+        ? {
+            tamanho: itensEquipamentos[0]?.tamanho || "",
+            tamanhoAnterior:
+              itensEquipamentos[0]?.tamanhoAnterior ||
+              itensEquipamentos[0]?.tamanho ||
+              "",
+            tamanhoNovo:
+              itensEquipamentos[0]?.tamanhoNovo ||
+              itensEquipamentos[0]?.tamanho ||
+              "",
+            ancoragem: itensEquipamentos[0]?.ancoragem || "",
+          }
+        : {}),
+    };
+
+    if (!validarContrapeso(formCompatibilidade)) return;
 
     const regrasOperacionais = obterRegraOperacionalSegura(form.equipamento, form.servico);
-    const obraSelecionada = obterObraDaAtividade(form, obras);
+    const obraSelecionada = obterObraDaAtividade(formCompatibilidade, obras);
     const alteracaoContrapeso = form.equipamento === "Balancinho" && servicoPermiteAlteracaoContrapeso(form.servico)
       ? normalizarAlteracaoContrapeso(form)
       : "nenhuma";
     const quantidadeContrapeso = alteracaoContrapeso === "nenhuma"
-      ? 1
+      ? usaItensMovimentacao
+        ? Number(form.quantidadeContrapeso) || 0
+        : usaItensEquipamentos
+          ? itensEquipamentos.filter(
+              (item) => item.usaContrapeso === true
+            ).length
+        : 1
       : obterQuantidadeContrapesoFormulario(form.quantidadeContrapeso, form.quantidade);
     const valoresCongelados = form.dataLiberacao
       ? montarValoresCongelados(
-          { ...form, alteracaoContrapeso, quantidadeContrapeso },
+          { ...formCompatibilidade, alteracaoContrapeso, quantidadeContrapeso },
           form.valoresCongelados?.dataCongelamento || new Date().toISOString(),
           form.valoresCongelados?.tabelaOrigem || obterTabelaOrigemDaAtividade(form)
         )
@@ -597,16 +1076,34 @@ export default function Atividades() {
       ...form,
       obra: obraSelecionada?.nome || form.obra,
       obraId: obraSelecionada?.id || form.obraId || "",
-      quantidade: Number(form.quantidade) || 1,
+      quantidade: quantidadeFinal,
+      ...(usaItensIndividuais ? { itensEquipamentos } : {}),
+      ...(usaItensIndividuais && form.equipamento === "Balancinho"
+        ? {
+            tamanho: itensEquipamentos[0]?.tamanho || "",
+            tamanhoAnterior:
+              itensEquipamentos[0]?.tamanhoAnterior ||
+              itensEquipamentos[0]?.tamanho ||
+              "",
+            tamanhoNovo:
+              itensEquipamentos[0]?.tamanhoNovo ||
+              itensEquipamentos[0]?.tamanho ||
+              "",
+            ancoragem: itensEquipamentos[0]?.ancoragem || "",
+          }
+        : {}),
+      usaContrapeso: usaContrapesoFinal,
       alteracaoContrapeso,
       quantidadeContrapeso,
-      numerosPatrimonio: normalizarNumerosPatrimonio(
-        form.numerosPatrimonio || [],
-        Number(form.quantidade) || 1
-      ),
-      adicionalServicoContrapeso: form.usaContrapeso ? form.adicionalServicoContrapeso : 0,
+      numerosPatrimonio: usaItensIndividuais
+        ? itensEquipamentos.map((item) => item.numeroPatrimonio || "")
+        : normalizarNumerosPatrimonio(
+            form.numerosPatrimonio || [],
+            quantidadeFinal
+          ),
+      adicionalServicoContrapeso: usaContrapesoFinal ? form.adicionalServicoContrapeso : 0,
       adicionalMensalContrapeso:
-        form.usaContrapeso || alteracaoContrapeso === "adicionar" ? form.adicionalMensalContrapeso : 0,
+        usaContrapesoFinal || alteracaoContrapeso === "adicionar" ? form.adicionalMensalContrapeso : 0,
       ...regrasOperacionais,
       valoresCongelados,
       numeroOS,
@@ -655,13 +1152,25 @@ export default function Atividades() {
 
   const editar = (item) => {
     const atividadeComValores = aplicarValoresCongeladosNoFormulario(item);
+    const quantidadeEdicao = Array.isArray(
+      atividadeComValores.itensEquipamentos
+    )
+      ? atividadeComValores.itensEquipamentos.length
+      : atividadeComValores.quantidade || 1;
     setValoresEditadosManual(marcarCamposValorPreenchidos(atividadeComValores));
     setForm({
       ...atividadeComValores,
-      quantidade: atividadeComValores.quantidade || 1,
+      ...(Array.isArray(atividadeComValores.itensEquipamentos)
+        ? {
+            itensEquipamentos: atividadeComValores.itensEquipamentos.map(
+              (itemEquipamento) => ({ ...itemEquipamento })
+            ),
+          }
+        : {}),
+      quantidade: quantidadeEdicao,
       numerosPatrimonio: ajustarNumerosPatrimonio(
         atividadeComValores.numerosPatrimonio || [],
-        atividadeComValores.quantidade || 1
+        quantidadeEdicao
       ),
       tipoBalancinho: atividadeComValores.tipoBalancinho || "",
       usaContrapeso: atividadeComValores.usaContrapeso || false,
@@ -710,11 +1219,88 @@ export default function Atividades() {
   const regrasFormulario = obterRegrasOperacionais(form.servico);
   const servicosPermitidos = obterServicosPermitidos(form.equipamento);
   const obraSelecionadaNoFormulario = obterObraDaAtividade(form, obras);
+  const unidadesAtivasDisponiveis = useMemo(() => {
+    if (
+      !obraSelecionadaNoFormulario ||
+      !form.equipamento ||
+      !servicoSelecionaUnidadesAtivas(form.servico)
+    ) {
+      return [];
+    }
+
+    const atividadesParaCalculo = form.id
+      ? atividades.filter(
+          (atividade) => String(atividade.id) !== String(form.id)
+        )
+      : atividades;
+
+    return obterUnidadesEquipamentosAtivos(
+      obraSelecionadaNoFormulario,
+      atividadesParaCalculo
+    ).filter((unidade) => unidade.equipamento === form.equipamento);
+  }, [
+    atividades,
+    form.equipamento,
+    form.id,
+    form.servico,
+    obraSelecionadaNoFormulario,
+  ]);
   const alteracaoContrapesoFormulario = normalizarAlteracaoContrapeso(form);
   const entradaContrapesoAvulsaFormulario =
     form.equipamento === "Balancinho" && alteracaoContrapesoFormulario === "adicionar";
   const mostrarUsaContrapesoFormulario =
     form.equipamento === "Balancinho" && servicoEntradaLocacaoInicial(form.servico);
+  const mostrarItensEquipamentosFormulario =
+    permiteItensEquipamentos(form.equipamento, form.servico) &&
+    Array.isArray(form.itensEquipamentos) &&
+    form.itensEquipamentos.length > 0;
+  const mostrarSelecaoUnidadesAtivas =
+    Boolean(obraSelecionadaNoFormulario) &&
+    Boolean(form.equipamento) &&
+    servicoSelecionaUnidadesAtivas(form.servico) &&
+    (!form.id || Array.isArray(form.itensEquipamentos));
+  const unidadesParaSelecao = useMemo(() => {
+    const unidades = [...unidadesAtivasDisponiveis];
+
+    if (Array.isArray(form.itensEquipamentos)) {
+      form.itensEquipamentos.forEach((item) => {
+        if (
+          !item.idItemOrigem ||
+          unidades.some(
+            (unidade) => unidade.idUnidade === item.idItemOrigem
+          )
+        ) {
+          return;
+        }
+
+        unidades.push({
+          idUnidade: item.idItemOrigem,
+          idItemOrigem: item.idItemOrigem,
+          atividadeOrigemId: item.atividadeOrigemId,
+          equipamento: item.equipamento,
+          tipoBalancinho: item.tipoBalancinho || "",
+          tipoMiniGrua: item.tipoMiniGrua || "",
+          tamanho: item.tamanhoAnterior || item.tamanho || "",
+          ancoragem: item.ancoragemAnterior || item.ancoragem || "",
+          numeroPatrimonio: item.numeroPatrimonio || "",
+          usaContrapeso:
+            item.usaContrapesoAnterior ?? item.usaContrapeso === true,
+          obraId: form.obraId,
+          construtora: form.construtora,
+          obra: form.obra,
+        });
+      });
+    }
+
+    return unidades;
+  }, [
+    form.ancoragem,
+    form.construtora,
+    form.itensEquipamentos,
+    form.obra,
+    form.obraId,
+    unidadesAtivasDisponiveis,
+  ]);
 
   const formatarEquipamento = (item) => {
     if (item.equipamento === "Mini Grua") {
@@ -830,6 +1416,16 @@ export default function Atividades() {
     });
   }, [atividadesOrdenadas, filtrosLista, obras]);
 
+  const encerrarLocalizacaoAtividade = () => {
+    setAtividadeDestacadaId(null);
+    setAtividadeParaLocalizarId(null);
+
+    if (filtrosAntesLocalizacaoRef.current) {
+      setFiltrosLista(filtrosAntesLocalizacaoRef.current);
+      filtrosAntesLocalizacaoRef.current = null;
+    }
+  };
+
   useEffect(() => {
     if (!atividadeParaLocalizarId || atividades.length === 0) return;
 
@@ -858,12 +1454,7 @@ export default function Atividades() {
     setAtividadeDestacadaId(String(atividadeParaLocalizarId));
 
     const timeout = window.setTimeout(() => {
-      setAtividadeDestacadaId(null);
-      setAtividadeParaLocalizarId(null);
-      if (filtrosAntesLocalizacaoRef.current) {
-        setFiltrosLista(filtrosAntesLocalizacaoRef.current);
-        filtrosAntesLocalizacaoRef.current = null;
-      }
+      encerrarLocalizacaoAtividade();
     }, 3500);
 
     return () => window.clearTimeout(timeout);
@@ -877,7 +1468,16 @@ export default function Atividades() {
       <div className="grid gap-3">
         <select
           value={form.construtora ?? ""}
-          onChange={(e) => setForm({ ...form, construtora: e.target.value, obra: "", obraId: "" })}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              construtora: e.target.value,
+              obra: "",
+              obraId: "",
+              itensEquipamentos: undefined,
+              quantidade: 1,
+            })
+          }
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
         >
           <option value="">Construtora</option>
@@ -894,6 +1494,8 @@ export default function Atividades() {
               ...form,
               obra: obraSelecionada?.nome || "",
               obraId: obraSelecionada?.id || "",
+              itensEquipamentos: undefined,
+              quantidade: 1,
             });
           }}
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
@@ -914,16 +1516,37 @@ export default function Atividades() {
           value={form.equipamento ?? ""}
           onChange={(e) => {
             const equipamento = e.target.value;
-            setForm({
+            const servico = obterServicoValidoParaEquipamento(
+              equipamento,
+              form.servico
+            );
+            const formularioAtualizado = {
               ...form,
               equipamento,
-              servico: obterServicoValidoParaEquipamento(equipamento, form.servico),
+              servico,
               ancoragem: "",
               tipoBalancinho: equipamento === "Balancinho" ? form.tipoBalancinho || "Eletrico" : "",
               usaContrapeso: equipamento === "Balancinho" ? form.usaContrapeso || false : false,
               alteracaoContrapeso: equipamento === "Balancinho" ? form.alteracaoContrapeso || "nenhuma" : "nenhuma",
               quantidadeContrapeso: equipamento === "Balancinho" ? form.quantidadeContrapeso || 1 : 1,
               tipoMiniGrua: equipamento === "Mini Grua" ? form.tipoMiniGrua || "500kg" : "",
+              itensEquipamentos: undefined,
+              ...(servicoSelecionaUnidadesAtivas(servico)
+                ? { quantidade: 0, numerosPatrimonio: [] }
+                : {}),
+            };
+
+            setForm({
+              ...formularioAtualizado,
+              ...(obterQuantidadePatrimonio(form.quantidade) > 1 &&
+              permiteItensEquipamentos(equipamento, servico)
+                ? {
+                    itensEquipamentos: ajustarItensEquipamentos(
+                      { ...formularioAtualizado, itensEquipamentos: [] },
+                      form.quantidade
+                    ),
+                  }
+                : {}),
             });
           }}
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
@@ -933,11 +1556,25 @@ export default function Atividades() {
           <option>Mini Grua</option>
         </select>
 
-        {form.equipamento === "Balancinho" && (
+        {form.equipamento === "Balancinho" && !mostrarSelecaoUnidadesAtivas && (
           <>
             <select
               value={form.tipoBalancinho ?? ""}
-              onChange={(e) => setForm({ ...form, tipoBalancinho: e.target.value })}
+              onChange={(e) => {
+                const tipoBalancinho = e.target.value;
+                setForm({
+                  ...form,
+                  tipoBalancinho,
+                  ...(Array.isArray(form.itensEquipamentos)
+                    ? {
+                        itensEquipamentos: form.itensEquipamentos.map((item) => ({
+                          ...item,
+                          tipoBalancinho,
+                        })),
+                      }
+                    : {}),
+                });
+              }}
               className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
             >
               <option value="">Tipo do Balancinho</option>
@@ -948,10 +1585,24 @@ export default function Atividades() {
           </>
         )}
 
-        {form.equipamento === "Mini Grua" && (
+        {form.equipamento === "Mini Grua" && !mostrarSelecaoUnidadesAtivas && (
           <select
             value={form.tipoMiniGrua ?? ""}
-            onChange={(e) => setForm({ ...form, tipoMiniGrua: e.target.value })}
+            onChange={(e) => {
+              const tipoMiniGrua = e.target.value;
+              setForm({
+                ...form,
+                tipoMiniGrua,
+                ...(Array.isArray(form.itensEquipamentos)
+                  ? {
+                      itensEquipamentos: form.itensEquipamentos.map((item) => ({
+                        ...item,
+                        tipoMiniGrua,
+                      })),
+                    }
+                  : {}),
+              });
+            }}
             className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
           >
             <option value="">Tipo da Mini Grua</option>
@@ -965,9 +1616,16 @@ export default function Atividades() {
           onChange={(e) => {
             const servico = e.target.value;
             const permiteUsoInicialContrapeso = servicoEntradaLocacaoInicial(servico);
-            setForm({
+            const formularioAtualizado = {
               ...form,
               servico,
+              ...(servicoSelecionaUnidadesAtivas(servico)
+                ? {
+                    itensEquipamentos: undefined,
+                    quantidade: 0,
+                    numerosPatrimonio: [],
+                  }
+                : {}),
               usaContrapeso: permiteUsoInicialContrapeso ? form.usaContrapeso : false,
               adicionalServicoContrapeso: permiteUsoInicialContrapeso ? form.adicionalServicoContrapeso : 0,
               adicionalMensalContrapeso: permiteUsoInicialContrapeso ? form.adicionalMensalContrapeso : 0,
@@ -975,6 +1633,18 @@ export default function Atividades() {
                 ? form.alteracaoContrapeso || "nenhuma"
                 : "nenhuma",
               quantidadeContrapeso: form.quantidadeContrapeso || form.quantidade || 1,
+            };
+            setForm({
+              ...formularioAtualizado,
+              ...(obterQuantidadePatrimonio(form.quantidade) > 1 &&
+              permiteItensEquipamentos(form.equipamento, servico)
+                ? {
+                    itensEquipamentos: ajustarItensEquipamentos(
+                      formularioAtualizado,
+                      form.quantidade
+                    ),
+                  }
+                : {}),
             });
           }}
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
@@ -985,7 +1655,7 @@ export default function Atividades() {
           ))}
         </select>
 
-        {mostrarUsaContrapesoFormulario && (
+        {mostrarUsaContrapesoFormulario && !mostrarItensEquipamentosFormulario && (
           <label className="flex items-center gap-2 text-sm font-medium">
             <input
               type="checkbox"
@@ -1012,7 +1682,8 @@ export default function Atividades() {
         )}
         {form.equipamento === "Balancinho" &&
           form.servico !== "" &&
-          form.servico !== "Deslocamento" && (
+          form.servico !== "Deslocamento" &&
+          !mostrarItensEquipamentosFormulario && (
             <select
               value={form.tamanho ?? ""}
               onChange={(e) => setForm({ ...form, tamanho: e.target.value })}
@@ -1025,7 +1696,7 @@ export default function Atividades() {
             </select>
           )}
 
-        {form.servico === "Deslocamento" && (
+        {form.servico === "Deslocamento" && !mostrarSelecaoUnidadesAtivas && (
           <>
             <select
               value={form.tamanhoAnterior ?? ""}
@@ -1055,7 +1726,9 @@ export default function Atividades() {
           </>
         )}
 
-        {form.equipamento === "Balancinho" && (
+        {form.equipamento === "Balancinho" &&
+          !mostrarItensEquipamentosFormulario &&
+          !mostrarSelecaoUnidadesAtivas && (
           <select
             value={form.ancoragem ?? ""}
             onChange={(e) => setForm({ ...form, ancoragem: e.target.value })}
@@ -1068,16 +1741,348 @@ export default function Atividades() {
           </select>
         )}
 
-        <label className="text-sm font-medium mt-2">Quantidade de Equipamentos</label>
-        <input
-          type="number"
-          min="1"
-          value={form.quantidade ?? ""}
-          onChange={(e) => atualizarQuantidade(e.target.value)}
-          className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
-        />
+        {mostrarSelecaoUnidadesAtivas ? (
+          <p className="rounded-xl border bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
+            Equipamentos selecionados:{" "}
+            {Array.isArray(form.itensEquipamentos)
+              ? form.itensEquipamentos.length
+              : 0}
+          </p>
+        ) : (
+          <>
+            <label className="text-sm font-medium mt-2">
+              Quantidade de Equipamentos
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={form.quantidade ?? ""}
+              onChange={(e) => atualizarQuantidade(e.target.value)}
+              className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
+            />
+          </>
+        )}
 
-        {form.equipamento === "Balancinho" && servicoPermiteAlteracaoContrapeso(form.servico) && (
+        {mostrarSelecaoUnidadesAtivas && (
+          <section className="space-y-3 rounded-xl border bg-gray-50 p-3">
+            <div>
+              <h3 className="font-semibold">Equipamentos ativos desta obra</h3>
+              <p className="text-sm text-gray-500">
+                Selecione uma ou várias unidades para este lançamento.
+              </p>
+            </div>
+
+            {unidadesParaSelecao.length === 0 ? (
+              <p className="rounded-lg border bg-white p-3 text-sm text-gray-500">
+                Nenhum equipamento ativo disponível para esta obra.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {unidadesParaSelecao.map((unidade, indiceUnidade) => {
+                  const itemSelecionado = form.itensEquipamentos?.find(
+                    (item) => item.idItemOrigem === unidade.idUnidade
+                  );
+                  const selecionada = Boolean(itemSelecionado);
+                  const tipo =
+                    unidade.equipamento === "Balancinho"
+                      ? unidade.tipoBalancinho === "Manual"
+                        ? "Balancinho Manual"
+                        : "Balancinho Elétrico"
+                      : `Mini Grua ${unidade.tipoMiniGrua || ""}`.trim();
+
+                  return (
+                    <div
+                      key={unidade.idUnidade}
+                      className={`rounded-xl border p-3 shadow-sm ${
+                        selecionada
+                          ? "border-blue-400 bg-blue-50"
+                          : "bg-white"
+                      }`}
+                    >
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selecionada}
+                          onChange={() =>
+                            alternarSelecaoUnidadeAtiva(unidade)
+                          }
+                          className="mt-1"
+                        />
+                        <span className="min-w-0 text-sm">
+                          <span className="block font-semibold">
+                            {tipo} — Unidade {indiceUnidade + 1}
+                          </span>
+                          {unidade.equipamento === "Balancinho" && (
+                            <span className="block text-gray-600">
+                              {unidade.tamanho
+                                ? `${unidade.tamanho} m`
+                                : "Tamanho não informado"}
+                              {unidade.ancoragem
+                                ? ` — ${unidade.ancoragem}`
+                                : ""}
+                            </span>
+                          )}
+                          <span className="block text-gray-500">
+                            {unidade.numeroPatrimonio
+                              ? `Patrimônio ${unidade.numeroPatrimonio}`
+                              : "Sem patrimônio"}
+                            {unidade.equipamento === "Balancinho" &&
+                            unidade.usaContrapeso
+                              ? " — Contrapeso"
+                              : ""}
+                          </span>
+                        </span>
+                      </label>
+
+                      {selecionada &&
+                        form.servico === "Deslocamento" &&
+                        itemSelecionado && (
+                          <div className="mt-3 space-y-3 border-t pt-3">
+                            <p className="text-sm text-gray-600">
+                              Tamanho anterior:{" "}
+                              <strong>
+                                {itemSelecionado.tamanhoAnterior || "-"} m
+                              </strong>
+                            </p>
+
+                            <label className="block text-sm font-medium">
+                              Novo tamanho
+                              <select
+                                value={itemSelecionado.tamanhoNovo || ""}
+                                onChange={(e) =>
+                                  atualizarItemEquipamento(
+                                    itemSelecionado.idItem,
+                                    "tamanhoNovo",
+                                    e.target.value
+                                  )
+                                }
+                                className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                              >
+                                <option value="">Novo tamanho</option>
+                                {[1, 1.5, 2, 3, 4, 5, 6].map((valor) => (
+                                  <option key={valor} value={valor}>
+                                    {valor}m
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <p className="text-sm text-gray-600">
+                              Ancoragem anterior:{" "}
+                              <strong>
+                                {itemSelecionado.ancoragemAnterior || "-"}
+                              </strong>
+                            </p>
+
+                            <label className="block text-sm font-medium">
+                              Nova ancoragem
+                              <select
+                                value={itemSelecionado.ancoragem || ""}
+                                onChange={(e) =>
+                                  atualizarItemEquipamento(
+                                    itemSelecionado.idItem,
+                                    "ancoragem",
+                                    e.target.value
+                                  )
+                                }
+                                className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                              >
+                                <option value="">Nova ancoragem</option>
+                                <option>Andaime Simples</option>
+                                <option>Andaime Duplo</option>
+                                <option>Afastador</option>
+                              </select>
+                            </label>
+
+                            <label className="block text-sm font-medium">
+                              Alteração de contrapeso
+                              <select
+                                value={
+                                  itemSelecionado.alteracaoContrapeso ||
+                                  "nenhuma"
+                                }
+                                onChange={(e) =>
+                                  atualizarItemEquipamento(
+                                    itemSelecionado.idItem,
+                                    "alteracaoContrapeso",
+                                    e.target.value
+                                  )
+                                }
+                                className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                              >
+                                <option value="nenhuma">Sem alteração</option>
+                                <option
+                                  value="adicionar"
+                                  disabled={
+                                    itemSelecionado.usaContrapesoAnterior ===
+                                    true
+                                  }
+                                >
+                                  Adicionar
+                                </option>
+                                <option
+                                  value="remover"
+                                  disabled={
+                                    itemSelecionado.usaContrapesoAnterior !==
+                                    true
+                                  }
+                                >
+                                  Remover
+                                </option>
+                              </select>
+                            </label>
+                          </div>
+                        )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {mostrarItensEquipamentosFormulario && (
+          <section className="space-y-3 rounded-xl border bg-gray-50 p-3">
+            <div>
+              <h3 className="font-semibold">Equipamentos deste lançamento</h3>
+              <p className="text-sm text-gray-500">
+                Informe os dados próprios de cada unidade.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {form.itensEquipamentos.map((item, indice) => (
+                <div
+                  key={item.idItem}
+                  className="space-y-3 rounded-xl border bg-white p-3 shadow-sm"
+                >
+                  <h4 className="font-semibold text-blue-700">
+                    Equipamento {indice + 1}
+                  </h4>
+
+                  {form.equipamento === "Balancinho" ? (
+                    <>
+                      <label className="block text-sm font-medium">
+                        Tipo do Balancinho
+                        <select
+                          value={item.tipoBalancinho || form.tipoBalancinho || ""}
+                          onChange={(e) =>
+                            atualizarItemEquipamento(
+                              item.idItem,
+                              "tipoBalancinho",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                        >
+                          <option value="">Tipo do Balancinho</option>
+                          <option value="Eletrico">Elétrico</option>
+                          <option value="Manual">Manual</option>
+                        </select>
+                      </label>
+
+                      <label className="block text-sm font-medium">
+                        Tamanho
+                        <select
+                          value={item.tamanho ?? ""}
+                          onChange={(e) =>
+                            atualizarItemEquipamento(
+                              item.idItem,
+                              "tamanho",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                        >
+                          <option value="">Tamanho</option>
+                          {[1, 1.5, 2, 3, 4, 5, 6].map((valor) => (
+                            <option key={valor} value={valor}>
+                              {valor}m
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block text-sm font-medium">
+                        Ancoragem
+                        <select
+                          value={item.ancoragem ?? ""}
+                          onChange={(e) =>
+                            atualizarItemEquipamento(
+                              item.idItem,
+                              "ancoragem",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                        >
+                          <option value="">Ancoragem</option>
+                          <option>Andaime Simples</option>
+                          <option>Andaime Duplo</option>
+                          <option>Afastador</option>
+                        </select>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={item.usaContrapeso === true}
+                          onChange={(e) =>
+                            atualizarItemEquipamento(
+                              item.idItem,
+                              "usaContrapeso",
+                              e.target.checked
+                            )
+                          }
+                        />
+                        Usa contrapeso?
+                      </label>
+                    </>
+                  ) : (
+                    <label className="block text-sm font-medium">
+                      Tipo da Mini Grua
+                      <select
+                        value={item.tipoMiniGrua || form.tipoMiniGrua || ""}
+                        onChange={(e) =>
+                          atualizarItemEquipamento(
+                            item.idItem,
+                            "tipoMiniGrua",
+                            e.target.value
+                          )
+                        }
+                        className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                      >
+                        <option value="">Tipo da Mini Grua</option>
+                        <option value="500kg">500kg</option>
+                        <option value="1T">1T</option>
+                      </select>
+                    </label>
+                  )}
+
+                  <label className="block text-sm font-medium">
+                    Número de patrimônio
+                    <input
+                      type="text"
+                      value={item.numeroPatrimonio ?? ""}
+                      onChange={(e) =>
+                        atualizarItemEquipamento(
+                          item.idItem,
+                          "numeroPatrimonio",
+                          e.target.value
+                        )
+                      }
+                      className="mt-1 w-full rounded-xl border bg-white px-3 py-2"
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {form.equipamento === "Balancinho" &&
+          servicoPermiteAlteracaoContrapeso(form.servico) &&
+          !mostrarSelecaoUnidadesAtivas && (
           <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
             <h3 className="text-sm font-semibold">Contrapeso</h3>
             {form.servico === "Deslocamento" ? (
@@ -1149,6 +2154,7 @@ export default function Atividades() {
           </div>
         )}
 
+        {!mostrarItensEquipamentosFormulario && !mostrarSelecaoUnidadesAtivas && (
         <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
           <h3 className="text-sm font-semibold">Números de patrimônio</h3>
           <div className="grid gap-3">
@@ -1165,6 +2171,7 @@ export default function Atividades() {
             ))}
           </div>
         </div>
+        )}
 
         {form.servico && regrasFormulario.cobraServico && (
           <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
@@ -1401,6 +2408,21 @@ export default function Atividades() {
             if (elemento) atividadeRefs.current[String(item.id)] = elemento;
             else delete atividadeRefs.current[String(item.id)];
           }}
+          onMouseDown={
+            String(atividadeDestacadaId) === String(item.id)
+              ? encerrarLocalizacaoAtividade
+              : undefined
+          }
+          onTouchStart={
+            String(atividadeDestacadaId) === String(item.id)
+              ? encerrarLocalizacaoAtividade
+              : undefined
+          }
+          onFocusCapture={
+            String(atividadeDestacadaId) === String(item.id)
+              ? encerrarLocalizacaoAtividade
+              : undefined
+          }
           className={`border rounded-xl p-4 shadow flex flex-col gap-2 transition-colors duration-500 ${
             String(atividadeDestacadaId) === String(item.id)
               ? "border-blue-500 bg-blue-50 ring-2 ring-blue-300"

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import { QRCodeCanvas } from "qrcode.react";
 import { normalizarTexto, obterObraDaAtividade } from "../utils/obras";
+import OrdemServicoLayout from "./OrdemServicoLayout";
 import {
   formatarDataOrdemServico,
   formatarEquipamentoOrdemServico,
@@ -21,6 +22,8 @@ const servicosOS = [
   "Somente recolhimento",
   "Outros serviços",
 ];
+
+const EXIBIR_TESTE_CAPTURA = true;
 
 const obterPrimeiroCampo = (objeto, campos) => {
   for (const campo of campos) {
@@ -46,6 +49,111 @@ const obterNumerosPatrimonioValidos = (atividade) =>
 const normalizarAlteracaoContrapesoOS = (atividade) => {
   const valor = String(atividade?.alteracaoContrapeso || "nenhuma").trim().toLowerCase();
   return ["adicionar", "remover"].includes(valor) ? valor : "nenhuma";
+};
+
+const obterItensEquipamentosOS = (atividade) =>
+  Array.isArray(atividade?.itensEquipamentos)
+    ? atividade.itensEquipamentos
+    : [];
+
+const obterQuantidadeOS = (atividade) => {
+  const itens = obterItensEquipamentosOS(atividade);
+  if (itens.length > 0) return itens.length;
+  return Number(atividade?.quantidade) || 1;
+};
+
+const formatarValorOS = (valor, fallback = "Não informado") => {
+  const texto = String(valor ?? "").trim();
+  return texto || fallback;
+};
+
+const formatarTipoItemOS = (item, atividade) =>
+  formatarEquipamentoOrdemServico({ ...atividade, ...item }) ||
+  "Equipamento";
+
+const montarDetalhesItemOS = (item, atividade) => {
+  const detalhes = [];
+  const patrimonio = formatarValorOS(item.numeroPatrimonio);
+  const servico = normalizarServicoOS(atividade?.servico);
+  const equipamento = item.equipamento || atividade.equipamento;
+
+  detalhes.push(`Patrimônio: ${patrimonio}`);
+
+  if (equipamento === "Balancinho") {
+    if (servico === "deslocamento") {
+      detalhes.push(
+        `Tamanho: ${formatarTamanhoDeslocamento(
+          item.tamanhoAnterior || item.tamanho
+        )} → ${formatarTamanhoDeslocamento(item.tamanhoNovo || item.tamanho)}`
+      );
+
+      const ancoragemAnterior = formatarValorOS(
+        item.ancoragemAnterior || item.ancoragem,
+        "-"
+      );
+      const ancoragemNova = formatarValorOS(item.ancoragem, "-");
+      detalhes.push(`Ancoragem: ${ancoragemAnterior} → ${ancoragemNova}`);
+    } else {
+      detalhes.push(
+        `Tamanho: ${formatarTamanhoDeslocamento(
+          item.tamanho || atividade.tamanho
+        )}`
+      );
+      detalhes.push(
+        `Ancoragem: ${formatarValorOS(
+          item.ancoragem || atividade.ancoragem
+        )}`
+      );
+    }
+
+    const alteracao = normalizarAlteracaoContrapesoOS(item);
+    if (servico === "deslocamento") {
+      detalhes.push(
+        `Kit Contrapeso: ${
+          alteracao === "adicionar"
+            ? "Adicionar"
+            : alteracao === "remover"
+              ? "Remover"
+              : "Sem alteração"
+        }`
+      );
+    } else {
+      detalhes.push(
+        `Kit Contrapeso: ${item.usaContrapeso ? "Sim" : "Não"}`
+      );
+    }
+  }
+
+  return detalhes;
+};
+
+const ListaEquipamentosOS = ({ atividade, compacto }) => {
+  const itens = obterItensEquipamentosOS(atividade);
+  if (itens.length === 0) return null;
+
+  return (
+    <BlocoOS titulo="Equipamentos" compacto={compacto}>
+      <ol
+        className={`grid grid-cols-1 ${
+          compacto ? "gap-0.5 text-[6.8px]" : "gap-1.5 text-[9px]"
+        }`}
+      >
+        {itens.map((item, indice) => (
+          <li
+            key={`${atividade.id || "atividade"}-equipamento-${indice}`}
+            className="break-inside-avoid leading-[1.15]"
+          >
+            <strong>
+              {indice + 1}. {formatarTipoItemOS(item, atividade)}
+            </strong>
+            <span className="ml-1">
+              {montarDetalhesItemOS(item, atividade).join(" | ")}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </BlocoOS>
+  );
 };
 
 const icones = {
@@ -136,83 +244,41 @@ const aguardarRenderizacao = async (elemento) => {
   await aguardarDoisFrames();
 };
 
-const capturarElemento = async (elemento) => {
-  await aguardarRenderizacao(elemento);
-  const canvas = await html2canvas(elemento, {
-    scale: 2.5,
-    backgroundColor: "#ffffff",
-    useCORS: true,
-    allowTaint: false,
-    logging: false,
-  });
-  return {
-    altura: canvas.height,
-    imagem: canvas.toDataURL("image/png"),
-    largura: canvas.width,
-  };
-};
-
-const adicionarImagemCentralizada = (pdf, captura, area) => {
-  const escala = Math.min(area.largura / captura.largura, area.altura / captura.altura);
-  const largura = captura.largura * escala;
-  const altura = captura.altura * escala;
+const adicionarImagemProporcional = (pdf, imagemPng, area) => {
+  const propriedades = pdf.getImageProperties(imagemPng);
+  const escala = Math.min(
+    area.largura / propriedades.width,
+    area.altura / propriedades.height
+  );
+  const largura = propriedades.width * escala;
+  const altura = propriedades.height * escala;
   const x = area.x + (area.largura - largura) / 2;
   const y = area.y + (area.altura - altura) / 2;
 
-  pdf.addImage(captura.imagem, "PNG", x, y, largura, altura);
+  pdf.addImage(imagemPng, "PNG", x, y, largura, altura);
 };
-
-const estilosCapturaPdf = `
-  .os-captura-pdf .os-codigo-os-texto {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    padding-bottom: 0;
-    padding-top: 0;
-  }
-
-  .os-captura-pdf .os-data-status-conteudo {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    line-height: 1.05;
-    padding-bottom: 0;
-    padding-top: 0;
-  }
-
-  .os-captura-pdf .os-data-status-conteudo br {
-    display: none;
-  }
-
-  .os-captura-pdf .os-titulo-bloco-texto {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    padding-bottom: 0;
-    padding-top: 0;
-  }
-`;
 
 const TituloBloco = ({ children, compacto }) => (
   <div
-    className={`absolute -top-[1px] left-3 rounded-b-sm bg-black font-bold uppercase tracking-wide text-white ${
+    className={`os-titulo-secao ml-3 w-fit rounded-b-sm bg-black font-bold uppercase tracking-wide text-white ${
       compacto ? "px-2 py-[1px] text-[7.5px]" : "px-3 py-0.5 text-[9px]"
     }`}
   >
-    <span className="os-titulo-bloco-texto">{children}</span>
+    <span className="flex items-center justify-center leading-none">{children}</span>
   </div>
 );
 
 const BlocoOS = ({ titulo, compacto, children, className = "" }) => (
   <section
-    className={`relative rounded border border-black bg-white ${
-      compacto ? "mt-1.5 px-2.5 pb-1.5 pt-3" : "mt-3 px-3 pb-2.5 pt-4"
+    data-titulo={titulo}
+    className={`os-bloco-secao overflow-hidden rounded border border-black bg-white ${
+      compacto ? "mt-1.5 pb-1.5" : "mt-3 pb-2.5"
     } ${className}`}
   >
-    <TituloBloco compacto={compacto}>{titulo}</TituloBloco>
-    {children}
+    <div className="os-faixa-titulo-secao">
+      <TituloBloco compacto={compacto}>{titulo}</TituloBloco>
+    </div>
+    <div className={`os-conteudo-bloco ${compacto ? "px-2.5 pt-1" : "px-3 pt-1.5"}`}>{children}</div>
   </section>
 );
 
@@ -273,18 +339,18 @@ const CampoAssinatura = ({ titulo, children, compacto }) => (
   </div>
 );
 
-const ViaOrdemServico = ({
+const OrdemServicoVisualizacao = ({
   atividade,
   dadosObra,
   dadosEquipamento,
   descricao,
+  numeroOSCampo,
   observacoesOS,
   payloadOffline,
   qrDataUrl,
   assinaturaTipo,
   assinaturaManual,
   status,
-  viaTitulo,
   compacto = false,
 }) => {
   const qrSize = compacto ? 88 : 112;
@@ -293,13 +359,11 @@ const ViaOrdemServico = ({
   return (
     <article
       className={`box-border bg-white text-black [&_*]:box-border ${
-        compacto ? "h-[142mm] p-[4mm] text-[9.2px]" : "min-h-[282mm] p-[10mm] text-xs"
+        compacto ? "min-h-[537px] p-[15px] text-[9.2px]" : "min-h-[1066px] p-[38px] text-xs"
       }`}
     >
-      {viaTitulo && <p className="mb-1 text-center text-[10px] font-bold">{viaTitulo}</p>}
-
       <header
-        className={`grid rounded border border-black ${
+        className={`os-cabecalho grid rounded border border-black ${
           compacto ? "grid-cols-[86px_1fr_106px] gap-2 p-1.5" : "grid-cols-[120px_1fr_138px] gap-4 p-3"
         }`}
       >
@@ -368,6 +432,8 @@ const ViaOrdemServico = ({
         </div>
       </BlocoOS>
 
+      <ListaEquipamentosOS atividade={atividade} compacto={compacto} />
+
       <BlocoOS titulo="Tipo de serviço" compacto={compacto}>
         <div className={`grid ${compacto ? "grid-cols-4 gap-0.5" : "grid-cols-3 gap-x-8 gap-y-1"}`}>
           {servicosOS.map((servico) => (
@@ -376,12 +442,30 @@ const ViaOrdemServico = ({
         </div>
       </BlocoOS>
 
-      <div className={`grid ${compacto ? "grid-cols-[1.2fr_1fr_0.75fr] gap-2" : "grid-cols-[1.1fr_1fr_0.75fr] gap-3"}`}>
+      <div
+        className={`os-detalhes-complementares grid ${
+          numeroOSCampo
+            ? compacto
+              ? "grid-cols-[1.1fr_0.65fr_1fr_0.75fr] gap-2"
+              : "grid-cols-[1.05fr_0.65fr_1fr_0.75fr] gap-3"
+            : compacto
+              ? "grid-cols-[1.2fr_1fr_0.75fr] gap-2"
+              : "grid-cols-[1.1fr_1fr_0.75fr] gap-3"
+        }`}
+      >
         <BlocoOS titulo="Descrição dos serviços" compacto={compacto}>
           <p className={`${compacto ? "min-h-[28px] py-[2px]" : "min-h-[58px] py-[5px]"} whitespace-pre-wrap font-semibold leading-[1.15]`}>
             {descricao}
           </p>
         </BlocoOS>
+
+        {numeroOSCampo && (
+          <BlocoOS titulo="Nº da OS de Campo" compacto={compacto}>
+            <p className={`${compacto ? "min-h-[28px] py-[2px]" : "min-h-[58px] py-[5px]"} whitespace-pre-wrap font-semibold leading-[1.15]`}>
+              {numeroOSCampo}
+            </p>
+          </BlocoOS>
+        )}
 
         <BlocoOS titulo="Observações" compacto={compacto}>
           <p className={`${compacto ? "min-h-[28px] py-[2px]" : "min-h-[58px] py-[5px]"} whitespace-pre-wrap font-semibold leading-[1.15]`}>
@@ -396,7 +480,7 @@ const ViaOrdemServico = ({
         </BlocoOS>
       </div>
 
-      <section className={`${compacto ? "mt-2" : "mt-3"} grid grid-cols-2 gap-3`}>
+      <section className={`os-assinaturas ${compacto ? "mt-2" : "mt-3"} grid grid-cols-2 gap-3`}>
         <CampoAssinatura titulo="Responsável da obra / cliente" compacto={compacto}>
           <div className={compacto ? "h-9" : "h-12"} />
         </CampoAssinatura>
@@ -405,7 +489,7 @@ const ViaOrdemServico = ({
         </CampoAssinatura>
       </section>
 
-      <footer className={`${compacto ? "mt-2 text-[6.5px]" : "mt-3 text-[10px]"} flex items-center justify-center gap-3 border-t border-black pt-1 font-semibold`}>
+      <footer className={`os-rodape ${compacto ? "mt-2 text-[6.5px]" : "mt-3 text-[10px]"} flex items-center justify-center gap-3 border-t border-black pt-1 font-semibold`}>
         <span>☎ (32) 99860-9001</span>
         <span>|</span>
         <span>✉ locacoescd@gmail.com</span>
@@ -417,19 +501,14 @@ const ViaOrdemServico = ({
 };
 
 export default function OrdemServico({ atividade, obras, construtoras, onClose }) {
-  // Fluxos: previewRef exibe a tela; pdfUmaViaRef alimenta PDF 1 via e WhatsApp; pdfPrimeiraViaRef/pdfSegundaViaRef alimentam PDF 2 vias.
-  // O PDF captura duplicacoes compactas de ViaOrdemServico renderizadas fora da tela, sem clone manual nem prop paraPdf/modoImpressao.
-  // O WhatsApp chama gerarPdf(1, false), portanto nao recebe a classe temporaria os-captura-pdf.
-  const previewRef = useRef(null);
-  const pdfUmaViaRef = useRef(null);
-  const pdfPrimeiraViaRef = useRef(null);
-  const pdfSegundaViaRef = useRef(null);
+  const osVisualRef = useRef(null);
   const qrCanvasRef = useRef(null);
   const assinaturaCanvasRef = useRef(null);
   const [assinaturaTipo, setAssinaturaTipo] = useState("fixa");
   const [assinaturaManual, setAssinaturaManual] = useState("");
   const [assinando, setAssinando] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [exportacaoEmAndamento, setExportacaoEmAndamento] = useState(false);
 
   const obra = useMemo(() => obterObraDaAtividade(atividade, obras), [atividade, obras]);
   const numeroOS = atividade.numeroOS || "";
@@ -443,14 +522,36 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
     [atividade, obra]
   );
   const [descricao, setDescricao] = useState(descricaoInicial);
+  const [numeroOSCampo, setNumeroOSCampo] = useState(
+    String(atividade?.numeroOSCampo || "")
+  );
   const [observacoesOS, setObservacoesOS] = useState(atividade?.observacoes || "");
 
   const status = obterStatusOrdemServico(atividade);
   const equipamento = formatarEquipamentoOrdemServico(atividade);
   const payloadOffline = montarPayloadOrdemServico({ atividade, obra, construtora });
   const isDeslocamento = normalizarServicoOS(atividade?.servico) === "deslocamento";
+  const itensEquipamentos = obterItensEquipamentosOS(atividade);
+  const equipamentosDetalhados = itensEquipamentos.map((item) => ({
+    tipo: formatarTipoItemOS(item, atividade),
+    detalhes: montarDetalhesItemOS(item, atividade),
+  }));
   const numerosPatrimonioValidos = obterNumerosPatrimonioValidos(atividade);
   const alteracaoContrapeso = normalizarAlteracaoContrapesoOS(atividade);
+
+  const atualizarNumeroOSCampo = (valor) => {
+    const valorNormalizado = valor.replace(/[^a-zA-Z0-9/-]/g, "");
+    setNumeroOSCampo(valorNormalizado);
+
+    atividade.numeroOSCampo = valorNormalizado;
+    const atividadesSalvas = JSON.parse(localStorage.getItem("atividades") || "[]");
+    const atividadesAtualizadas = atividadesSalvas.map((item) =>
+      String(item.id) === String(atividade.id)
+        ? { ...item, numeroOSCampo: valorNormalizado }
+        : item
+    );
+    localStorage.setItem("atividades", JSON.stringify(atividadesAtualizadas));
+  };
 
   useEffect(() => {
     setQrDataUrl("");
@@ -479,7 +580,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
 
   const dadosEquipamento = [
     ["Equipamento", equipamento],
-    ["Quantidade", atividade?.quantidade || 1],
+    ["Quantidade", obterQuantidadeOS(atividade)],
     ...(isDeslocamento
       ? [
           ["Tamanho anterior", formatarTamanhoDeslocamento(atividade?.tamanhoAnterior)],
@@ -498,7 +599,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
     ["Ancoragem", atividade?.ancoragem],
     ["Capacidade", atividade?.tipoMiniGrua],
     ["Tipo específico", atividade?.tipoBalancinho || atividade?.tipoMiniGrua],
-    ...(numerosPatrimonioValidos.length > 0
+    ...(itensEquipamentos.length === 0 && numerosPatrimonioValidos.length > 0
       ? [
           [
             numerosPatrimonioValidos.length === 1 ? "Patrimônio" : "Patrimônios",
@@ -510,84 +611,177 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
 
   const propsVia = {
     atividade,
+    assinaturaManual,
+    assinaturaTipo,
     dadosObra,
     dadosEquipamento,
+    dataDocumento: formatarDataOrdemServico(new Date().toISOString().slice(0, 10)),
     descricao,
+    equipamentosDetalhados,
+    numeroOSCampo,
     observacoesOS,
-    payloadOffline,
     qrDataUrl,
-    assinaturaTipo,
-    assinaturaManual,
+    servicos: servicosOS,
     status,
   };
 
-  const gerarPdf = async (vias = 1, baixar = true) => {
-    const elementos =
-      vias === 2
-        ? [pdfPrimeiraViaRef.current, pdfSegundaViaRef.current]
-        : [pdfUmaViaRef.current];
-
-    if (elementos.some((elemento) => !elemento)) return null;
-    if (!qrDataUrl) {
-      alert("Aguarde o QR Code terminar de carregar antes de gerar o PDF.");
-      return null;
+  const gerarImagemOS = async () => {
+    const osVisual = osVisualRef.current;
+    if (!osVisual) {
+      throw new Error("Elemento da Ordem de Serviço não encontrado.");
     }
-
-    const usarAjusteExclusivoPdf = baixar;
-    if (usarAjusteExclusivoPdf) {
-      elementos.forEach((elemento) => elemento.classList.add("os-captura-pdf"));
+    if (!qrDataUrl) {
+      throw new Error("Aguarde o QR Code terminar de carregar.");
     }
 
     try {
-      const capturas = await Promise.all(elementos.map(capturarElemento));
-      const pdf = new jsPDF("p", "mm", "a4");
+      await aguardarRenderizacao(osVisual);
+      const rect = osVisual.getBoundingClientRect();
+      const largura = Math.ceil(
+        Math.max(osVisual.scrollWidth, osVisual.offsetWidth, rect.width)
+      );
+      const altura = Math.ceil(
+        Math.max(osVisual.scrollHeight, osVisual.offsetHeight, rect.height)
+      );
 
-      if (vias === 2) {
-        adicionarImagemCentralizada(pdf, capturas[0], { x: 0, y: 0, largura: 210, altura: 148.5 });
-        adicionarImagemCentralizada(pdf, capturas[1], { x: 0, y: 148.5, largura: 210, altura: 148.5 });
-      } else {
-        adicionarImagemCentralizada(pdf, capturas[0], { x: 0, y: 0, largura: 210, altura: 297 });
-      }
-
-      const nome = `ordem-servico-${numeroOS || atividade.id}-${vias}via.pdf`;
-      if (baixar) pdf.save(nome);
-      return pdf.output("blob");
+      return await toPng(osVisual, {
+        cacheBust: true,
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        width: largura,
+        height: altura,
+        style: {
+          margin: "0",
+          marginLeft: "0",
+          marginRight: "0",
+          left: "0",
+          right: "auto",
+          transform: "none",
+          overflow: "visible",
+          maxWidth: "none",
+          flexShrink: "0",
+        },
+      });
     } catch (erro) {
-      alert(erro?.message || "Não foi possível gerar o PDF da Ordem de Serviço.");
-      return null;
-    } finally {
-      if (usarAjusteExclusivoPdf) {
-        elementos.forEach((elemento) => elemento.classList.remove("os-captura-pdf"));
-      }
+      throw new Error(
+        erro?.message || "Não foi possível gerar a imagem da Ordem de Serviço."
+      );
     }
   };
 
-  const imprimir = async () => {
-    await gerarPdf(2, true);
-    alert("PDF com 2 vias gerado. Abra o arquivo baixado para imprimir.");
-  };
+  const criarPdfUmaVia = (imagemPng) => {
+    const propriedades = new jsPDF().getImageProperties(imagemPng);
+    const orientacao = propriedades.width > propriedades.height ? "landscape" : "portrait";
+    const pdf = new jsPDF({ orientation: orientacao, unit: "mm", format: "a4" });
+    const larguraPagina = pdf.internal.pageSize.getWidth();
+    const alturaPagina = pdf.internal.pageSize.getHeight();
+    const margem = 5;
 
-  const enviarWhatsApp = async () => {
-    const blob = await gerarPdf(1, false);
-    if (!blob) return;
-    const arquivo = new File([blob], `ordem-servico-${numeroOS || atividade.id}.pdf`, {
-      type: "application/pdf",
+    adicionarImagemProporcional(pdf, imagemPng, {
+      x: margem,
+      y: margem,
+      largura: larguraPagina - margem * 2,
+      altura: alturaPagina - margem * 2,
     });
-    const texto = `Ordem de Serviço ${numeroOS} - ${obra?.nome || atividade.obra || ""}`;
-
-    if (navigator.canShare?.({ files: [arquivo] })) {
-      await navigator.share({ files: [arquivo], title: "Ordem de Serviço", text: texto });
-      return;
-    }
-
-    const pdfDownload = document.createElement("a");
-    pdfDownload.href = URL.createObjectURL(blob);
-    pdfDownload.download = arquivo.name;
-    pdfDownload.click();
-    URL.revokeObjectURL(pdfDownload.href);
-    window.open(`https://wa.me/?text=${encodeURIComponent(`${texto}\nAnexe o PDF baixado.`)}`, "_blank");
-    alert("O PDF foi baixado. Se o WhatsApp não anexar automaticamente, anexe o arquivo baixado manualmente.");
+    return pdf;
   };
+
+  const criarPdfDuasVias = (imagemPng) => {
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const larguraPagina = pdf.internal.pageSize.getWidth();
+    const margem = 5;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.text("1ª VIA — EMPRESA", larguraPagina / 2, 5, { align: "center" });
+    adicionarImagemProporcional(pdf, imagemPng, {
+      x: margem,
+      y: 7,
+      largura: larguraPagina - margem * 2,
+      altura: 139,
+    });
+
+    pdf.setLineDashPattern([2, 2], 0);
+    pdf.line(margem, 148.5, larguraPagina - margem, 148.5);
+    pdf.setLineDashPattern([], 0);
+
+    pdf.text("2ª VIA — CLIENTE", larguraPagina / 2, 153.5, { align: "center" });
+    adicionarImagemProporcional(pdf, imagemPng, {
+      x: margem,
+      y: 155.5,
+      largura: larguraPagina - margem * 2,
+      altura: 136.5,
+    });
+    return pdf;
+  };
+
+  const numeroArquivo = String(numeroOS || atividade.id || "sem-numero")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-");
+
+  const executarExportacao = async (acao) => {
+    if (exportacaoEmAndamento) return;
+    setExportacaoEmAndamento(true);
+    try {
+      await acao();
+    } catch (erro) {
+      if (erro?.name !== "AbortError") {
+        alert(erro?.message || "Não foi possível concluir a exportação da Ordem de Serviço.");
+      }
+    } finally {
+      setExportacaoEmAndamento(false);
+    }
+  };
+
+  const baixarPdf = (vias) =>
+    executarExportacao(async () => {
+      const imagemPng = await gerarImagemOS();
+      const pdf = vias === 2
+        ? criarPdfDuasVias(imagemPng)
+        : criarPdfUmaVia(imagemPng);
+      pdf.save(vias === 2 ? `OS-${numeroArquivo}-2-vias.pdf` : `OS-${numeroArquivo}.pdf`);
+    });
+
+  const enviarWhatsApp = () =>
+    executarExportacao(async () => {
+      const imagemPng = await gerarImagemOS();
+      const pdf = criarPdfUmaVia(imagemPng);
+      const blob = pdf.output("blob");
+      const arquivo = new File([blob], `OS-${numeroArquivo}.pdf`, {
+        type: "application/pdf",
+      });
+      const texto = `Ordem de Serviço ${numeroOS} - ${obra?.nome || atividade.obra || ""}`;
+
+      if (navigator.share && navigator.canShare?.({ files: [arquivo] })) {
+        await navigator.share({
+          files: [arquivo],
+          title: `Ordem de Serviço ${numeroOS}`,
+          text: texto,
+        });
+        return;
+      }
+
+      const urlPdf = URL.createObjectURL(blob);
+      const download = document.createElement("a");
+      download.href = urlPdf;
+      download.download = arquivo.name;
+      download.click();
+      URL.revokeObjectURL(urlPdf);
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(`${texto}\nO PDF foi baixado; anexe-o à conversa.`)}`,
+        "_blank"
+      );
+      alert("O PDF foi baixado. Anexe o arquivo manualmente na conversa do WhatsApp.");
+    });
+
+  const testarCapturaPng = () =>
+    executarExportacao(async () => {
+      const dataUrl = await gerarImagemOS();
+      const download = document.createElement("a");
+      download.href = dataUrl;
+      download.download = "teste-os.png";
+      download.click();
+    });
 
   const iniciarAssinatura = (event) => {
     if (assinaturaTipo !== "manual") return;
@@ -626,20 +820,29 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-3">
-      <style>{estilosCapturaPdf}</style>
       <div className="mx-auto max-w-5xl rounded bg-white p-4 shadow-xl">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xl font-semibold">Ordem de Serviço</h2>
           <button onClick={onClose} className="rounded border px-3 py-1 text-sm">Fechar</button>
         </div>
 
-        <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <div className="mb-4 grid gap-3">
           <label className="text-sm font-medium">
             Descrição dos serviços
             <textarea
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               className="mt-1 min-h-[110px] w-full rounded border px-3 py-2"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Nº da OS de Campo
+            <input
+              type="text"
+              value={numeroOSCampo}
+              onChange={(e) => atualizarNumeroOSCampo(e.target.value)}
+              maxLength={30}
+              className="mt-1 w-full rounded border px-3 py-2"
             />
           </label>
           <label className="text-sm font-medium">
@@ -685,22 +888,42 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
         )}
 
         <div className="mb-4 flex flex-wrap gap-2">
-          <button onClick={enviarWhatsApp} className="rounded bg-green-600 px-4 py-2 text-white">
-            WhatsApp - 1 via
+          <button
+            onClick={enviarWhatsApp}
+            disabled={exportacaoEmAndamento}
+            className="rounded bg-green-600 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exportacaoEmAndamento ? "Gerando..." : "WhatsApp"}
           </button>
-          <button onClick={imprimir} className="rounded border px-4 py-2">
-            Imprimir - 2 vias
+          <button
+            onClick={() => baixarPdf(1)}
+            disabled={exportacaoEmAndamento}
+            className="rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exportacaoEmAndamento ? "Gerando..." : "PDF — 1 via"}
           </button>
-          <button onClick={() => gerarPdf(1, true)} className="rounded border px-4 py-2">
-            Baixar PDF - 1 via
+          <button
+            onClick={() => baixarPdf(2)}
+            disabled={exportacaoEmAndamento}
+            className="rounded border px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {exportacaoEmAndamento ? "Gerando..." : "PDF — 2 vias"}
           </button>
-          <button onClick={() => gerarPdf(2, true)} className="rounded border px-4 py-2">
-            Baixar PDF - 2 vias
-          </button>
+          {EXIBIR_TESTE_CAPTURA && (
+            <button
+              onClick={testarCapturaPng}
+              disabled={exportacaoEmAndamento}
+              className="rounded border border-blue-600 px-4 py-2 text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exportacaoEmAndamento ? "Gerando..." : "Testar captura PNG"}
+            </button>
+          )}
         </div>
 
-        <div ref={previewRef} className="mx-auto max-w-[794px] border border-black bg-white text-black">
-          <ViaOrdemServico {...propsVia} compacto />
+        <div className="mx-auto max-w-[794px]">
+          <div ref={osVisualRef} className="border border-black bg-white text-black">
+            <OrdemServicoLayout {...propsVia} modo="tela" compacto />
+          </div>
         </div>
 
         <div className="pointer-events-none fixed -left-[10000px] top-0 opacity-0">
@@ -715,24 +938,6 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
           />
         </div>
 
-        <div className="fixed -left-[10000px] top-0 bg-white">
-          <div className="w-[210mm] bg-white p-[2mm]">
-            <div ref={pdfUmaViaRef} className="w-full bg-white">
-              <ViaOrdemServico {...propsVia} compacto />
-            </div>
-          </div>
-          <div className="h-[297mm] w-[210mm] bg-white p-[2mm] text-black">
-            <div ref={pdfPrimeiraViaRef} className="w-full bg-white">
-              <ViaOrdemServico {...propsVia} compacto viaTitulo="1ª VIA — EMPRESA" />
-            </div>
-            <div className="my-[1.5mm] border-t border-dashed border-black text-center text-[7px]">
-              linha de corte
-            </div>
-            <div ref={pdfSegundaViaRef} className="w-full bg-white">
-              <ViaOrdemServico {...propsVia} compacto viaTitulo="2ª VIA — CLIENTE" />
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

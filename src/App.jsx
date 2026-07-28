@@ -1,13 +1,11 @@
 import { useState } from "react";
 import Dashboard from "./components/Dashboard";
-import Construtoras from "./components/Construtoras";
-import Obras from "./components/Obras";
+import ConstrutorasObras from "./components/ConstrutorasObras";
 import Atividades from "./components/Atividades";
 import Agenda from "./components/Agenda.tsx";
 import RelatorioFinanceiro from "./components/RelatorioFinanceiro";
 import RelatorioServicos from "./components/RelatorioServicos";
 import RelatorioLocacao from "./components/RelatorioLocacao";
-import DetalhesObra from "./components/DetalhesObra";
 import BackupImportacao from "./components/BackupImportacao";
 import Configuracoes from "./components/Configuracoes";
 import TabelaComercial from "./components/TabelaComercial";
@@ -23,19 +21,39 @@ const usuarioAdminSimulado = {
 
 export default function App() {
   const [selectedPage, setSelectedPage] = useState("dashboard");
+  const [contextoNavegacao, setContextoNavegacao] = useState(null);
   const [menuAberto, setMenuAberto] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(usuarioAdminSimulado);
+
+  const navegar = (pagina, contexto = null) => {
+    setContextoNavegacao(contexto);
+    setSelectedPage(pagina);
+    setMenuAberto(false);
+  };
+
+  const limparContextoNavegacao = () => {
+    setContextoNavegacao(null);
+  };
+
+  const abrirAtividade = (id) => {
+    if (!id) return;
+
+    navegar("atividades", {
+      origem: "atividade-relacionada",
+      destino: "atividades",
+      acao: "localizar-atividade",
+      atividadeId: id,
+    });
+  };
 
   const renderTitle = () => {
     switch (selectedPage) {
       case "dashboard": return "Painel de Controle";
-      case "construtoras": return "Construtoras";
-      case "obras": return "Obras";
+      case "construtorasobras": return "Construtoras e Obras";
       case "atividades": return "Atividades";
       case "relatoriofinanceiro": return "Relatório Financeiro";
       case "relatorioservicos": return "Relatório de Serviços";
       case "relatoriolocacao": return "Relatório de Locação";
-      case "detalhesobra": return "Detalhes da Obra";
       case "backup": return "Backup";
       case "configuracoes": return "Configurações";
       case "tabelacomercial": return "Tabela Comercial";
@@ -47,21 +65,13 @@ export default function App() {
 
   const renderContent = () => {
     switch (selectedPage) {
-      case "dashboard": return <Dashboard abrirAtividade={(id) => {
-        localStorage.setItem("atividadeParaLocalizar", String(id));
-        setSelectedPage("atividades");
-      }} />;
-      case "construtoras": return <Construtoras />;
-      case "obras": return <Obras />;
-      case "atividades": return <Atividades />;
+      case "dashboard": return <Dashboard abrirAtividade={abrirAtividade} />;
+      case "construtorasobras": return <ConstrutorasObras navegar={navegar} abrirAtividade={abrirAtividade} contextoNavegacao={contextoNavegacao} limparContextoNavegacao={limparContextoNavegacao} />;
+      case "atividades": return <Atividades contextoNavegacao={contextoNavegacao} limparContextoNavegacao={limparContextoNavegacao} />;
       case "agenda": return <Agenda />;
       case "relatoriofinanceiro": return <RelatorioFinanceiro />;
       case "relatorioservicos": return <RelatorioServicos />;
       case "relatoriolocacao": return <RelatorioLocacao />;
-      case "detalhesobra": return <DetalhesObra abrirAtividade={(id) => {
-        localStorage.setItem("atividadeParaEditar", String(id));
-        setSelectedPage("atividades");
-      }} />;
       case "backup": return <BackupImportacao />;
       case "configuracoes": return <Configuracoes />;
       case "tabelacomercial": return <TabelaComercial />;
@@ -96,11 +106,10 @@ export default function App() {
           )}
           {usuarioLogado.tipo === "admin" && (
             <>
-              <button onClick={() => { setSelectedPage("construtoras"); setMenuAberto(false); }} className="text-left hover:text-blue-600">🏗️ Construtoras</button>
-              <button onClick={() => { setSelectedPage("obras"); setMenuAberto(false); }} className="text-left hover:text-blue-600">🧱 Obras</button>
+              <button onClick={() => navegar("construtorasobras")} className="text-left hover:text-blue-600">Construtoras e Obras</button>
             </>
           )}
-          <button onClick={() => { setSelectedPage("atividades"); setMenuAberto(false); }} className="text-left hover:text-blue-600">📋 Atividades</button>
+          <button onClick={() => navegar("atividades")} className="text-left hover:text-blue-600">📋 Atividades</button>
           <button
   onClick={() => { setSelectedPage("agenda"); setMenuAberto(false); }}
   className="text-left hover:text-blue-600"
@@ -118,7 +127,6 @@ export default function App() {
           )}
           {usuarioLogado.tipo === "admin" && (
             <>
-              <button onClick={() => { setSelectedPage("detalhesobra"); setMenuAberto(false); }} className="text-left hover:text-blue-600">📌 Detalhes da Obra</button>
               <button onClick={() => { setSelectedPage("backup"); setMenuAberto(false); }} className="text-left hover:text-blue-600">💾 Backup</button>
               <button onClick={() => { setSelectedPage("usuarios"); setMenuAberto(false); }} className="text-left hover:text-blue-600">👥 Usuários</button>
               <button onClick={() => { setSelectedPage("tabelacomercial"); setMenuAberto(false); }} className="text-left hover:text-blue-600">Tabela Comercial</button>

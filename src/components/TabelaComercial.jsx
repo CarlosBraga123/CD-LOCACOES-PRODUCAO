@@ -3,45 +3,17 @@ import {
   converterMoedaParaNumero,
   formatarMoeda,
   formatarNumeroParaEdicao,
-  normalizarValoresMonetarios,
 } from "../utils/moeda";
-
-const tabelaComercialInicial = {
-  versao: 1,
-  atualizadoEm: "",
-  servicos: {
-    "Balancinho-Eletrico-Instalação": 1000,
-    "Balancinho-Eletrico-Deslocamento": 1000,
-    "Balancinho-Eletrico-Manutenção": 0,
-    "Balancinho-Eletrico-Remoção": 1000,
-    "Balancinho-Manual-Instalação": 900,
-    "Balancinho-Manual-Deslocamento": 900,
-    "Balancinho-Manual-Manutenção": 0,
-    "Balancinho-Manual-Remoção": 900,
-    "Balancinho-Contrapeso-Instalação": 0,
-    "Balancinho-Contrapeso-Deslocamento": 0,
-    "Balancinho-Contrapeso-Manutenção": 0,
-    "Balancinho-Contrapeso-Remoção": 0,
-    "Mini Grua-500kg-Instalação": 4000,
-    "Mini Grua-500kg-Ascensão": 900,
-    "Mini Grua-500kg-Manutenção": 0,
-    "Mini Grua-500kg-Remoção": 4000,
-    "Mini Grua-1T-Instalação": 8500,
-    "Mini Grua-1T-Ascensão": 1000,
-    "Mini Grua-1T-Manutenção": 0,
-    "Mini Grua-1T-Remoção": 8500,
-  },
-  locacoes: {
-    "Balancinho-Eletrico": 1200,
-    "Balancinho-Manual": 1000,
-    "Balancinho-Contrapeso": 600,
-    "Mini Grua-500kg": 0,
-    "Mini Grua-1T": 0,
-  },
-};
+import {
+  criarTabelaComercialInicial,
+  normalizarTabelaComercial,
+  normalizarTabelaComercialParaSalvar,
+} from "../utils/tabelaComercial";
 
 export default function TabelaComercial() {
-  const [tabela, setTabela] = useState(tabelaComercialInicial);
+  const [tabela, setTabela] = useState(() =>
+    criarTabelaComercialInicial({ atualizadoEm: "" })
+  );
   const [camposEmEdicao, setCamposEmEdicao] = useState({});
 
   useEffect(() => {
@@ -49,18 +21,12 @@ export default function TabelaComercial() {
 
     if (!salva) return;
 
-    setTabela({
-      versao: salva.versao || 1,
-      atualizadoEm: salva.atualizadoEm || "",
-      servicos: {
-        ...tabelaComercialInicial.servicos,
-        ...(salva.servicos || {}),
-      },
-      locacoes: {
-        ...tabelaComercialInicial.locacoes,
-        ...(salva.locacoes || {}),
-      },
-    });
+    setTabela(
+      normalizarTabelaComercial(
+        { ...salva, atualizadoEm: salva.atualizadoEm || "" },
+        { incluirVersaoPadrao: true }
+      )
+    );
   }, []);
 
   const obterChaveCampo = (grupo, chave) => `${grupo}:${chave}`;
@@ -102,15 +68,11 @@ export default function TabelaComercial() {
     });
   };
 
-  const normalizarTabelaParaSalvar = (tabelaAtual) => ({
-    ...tabelaAtual,
-    servicos: normalizarValoresMonetarios(tabelaAtual.servicos),
-    locacoes: normalizarValoresMonetarios(tabelaAtual.locacoes),
-  });
-
   const salvarTabela = () => {
     const tabelaAtualizada = {
-      ...normalizarTabelaParaSalvar(tabela),
+      ...normalizarTabelaComercialParaSalvar(tabela, {
+        incluirVersaoPadrao: true,
+      }),
       versao: 1,
       atualizadoEm: new Date().toISOString(),
     };

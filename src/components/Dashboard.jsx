@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { calcularPeriodosLocacao } from "../utils/locacaoFinanceira";
 import { formatarMoeda } from "../utils/moeda";
 import { obterObraDaAtividade, normalizarTexto } from "../utils/obras";
+import AtividadeResumoCard from "./AtividadeResumoCard";
 
 const servicosValidos = ["Instalação", "Deslocamento", "Manutenção", "Ascensão", "Remoção"];
 
@@ -482,16 +483,18 @@ export default function Dashboard({ abrirAtividade }) {
               const dadosObra = obterDadosObra(a);
 
               return (
-                <li
-                  key={a.id}
-                  onClick={() => abrirAtividadeSegura(a.id)}
-                  className="border rounded p-3 bg-white shadow-sm cursor-pointer hover:bg-blue-50"
-                  title="Abrir atividade"
-                >
-                  <strong>{a.servico} - {a.equipamento}</strong>
-                  {a.equipamento === "Balancinho" && a.tamanho ? ` [${a.tamanho}m]` : ""}<br />
-                  {dadosObra.construtora} / {dadosObra.obra} <br />
-                  Liberado: {formatarData(a.dataLiberacao)}
+                <li key={a.id}>
+                  <AtividadeResumoCard
+                    atividade={a}
+                    onClick={() => abrirAtividadeSegura(a.id)}
+                    className="cursor-pointer hover:border-blue-300 hover:bg-blue-50"
+                    title="Abrir atividade"
+                    informacoesAdicionais={
+                      <p className="mt-1 text-xs text-gray-500">
+                        {dadosObra.construtora} / {dadosObra.obra}
+                      </p>
+                    }
+                  />
                 </li>
               );
             })}
