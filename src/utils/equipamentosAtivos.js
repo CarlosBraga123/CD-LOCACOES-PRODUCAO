@@ -9,6 +9,16 @@ import {
   criarUnidadesDaEntrada,
   localizarIndiceUnidade,
 } from "./unidadesEquipamentos";
+import {
+  aplicarPatrimoniosAdministrativos,
+  obterRegistrosPatrimonio,
+} from "./patrimoniosEquipamentos";
+import {
+  aplicarSubstituicoesEquipamentosAtivos,
+  obterEquipamentosPatrimonio,
+  obterIdEquipamentoDoItem,
+} from "./equipamentosPatrimonio";
+import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
 
 const ordemBalancinho = ["Balancinho Elétrico", "Balancinho Manual", "Kit Contrapeso"];
 const ordemMiniGrua = ["Mini Grua 500kg", "Mini Grua 1T", "Mini Grua"];
@@ -38,6 +48,19 @@ export const calcularEquipamentosAtivosDaObra = (obra, atividades = []) => {
 
   atividades
     .filter((atividade) => atividadePertenceObra(atividade, obra) && atividade.dataLiberacao)
+    .map((atividade) => {
+      if (
+        atividade.pendenteVinculoPatrimonio !== true ||
+        atividadeIniciaLocacao(atividade)
+      ) {
+        return atividade;
+      }
+      const vinculados = (atividade.itensEquipamentos || []).filter(
+        itemPossuiVinculoPatrimonial
+      ).length;
+      return vinculados > 0 ? { ...atividade, quantidade: vinculados } : null;
+    })
+    .filter(Boolean)
     .flatMap((atividade) => obterMovimentosLocacao(atividade))
     .forEach((atividade) => {
       const quantidade = Number(atividade.quantidade) || 1;
@@ -95,13 +118,22 @@ const aplicarDeslocamentoNaUnidade = (unidade, item, atividade) => {
   };
 };
 
-export const obterUnidadesEquipamentosAtivos = (obra, atividades = []) => {
+export const obterUnidadesEquipamentosAtivos = (
+  obra,
+  atividades = [],
+  registrosPatrimonio = obterRegistrosPatrimonio(),
+  equipamentosMestres = obterEquipamentosPatrimonio()
+) => {
   const unidades = [];
 
   atividades
     .filter(
       (atividade) =>
-        atividadePertenceObra(atividade, obra) && atividade.dataLiberacao
+        atividadePertenceObra(atividade, obra) &&
+        atividade.dataLiberacao &&
+        (atividade.pendenteVinculoPatrimonio !== true ||
+          atividadeIniciaLocacao(atividade) ||
+          (atividade.itensEquipamentos || []).some(itemPossuiVinculoPatrimonial))
     )
     .sort((a, b) => {
       const porData = String(a.dataLiberacao).localeCompare(
@@ -186,7 +218,17 @@ export const obterUnidadesEquipamentosAtivos = (obra, atividades = []) => {
       }
     });
 
-  return unidades;
+  const unidadesComIdentidade = aplicarPatrimoniosAdministrativos(
+    unidades,
+    registrosPatrimonio
+  ).map((item) => ({
+      ...item,
+      idEquipamento: obterIdEquipamentoDoItem(item, equipamentosMestres),
+    }));
+  return aplicarSubstituicoesEquipamentosAtivos(
+    unidadesComIdentidade,
+    equipamentosMestres
+  );
 };
 
 export const obterResumoUnidadesEquipamentosAtivos = (

@@ -8,6 +8,7 @@ import {
   obterMovimentosLocacao,
 } from "../utils/locacaoFinanceira";
 import { normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
+import { atividadeTemPatrimonioPendente } from "../utils/pendenciasOperacionais";
 
 const normalizarCategoriaLocacao = (valor) =>
   normalizarTexto(valor).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -848,9 +849,21 @@ export default function RelatorioLocacao() {
     );
   };
 
+  const encerramentosPendentes = atividades.filter(
+    (atividade) =>
+      atividadeTemPatrimonioPendente(atividade) &&
+      ["Remoção", "Somente recolhimento"].includes(atividade.servico)
+  );
+
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-lg font-bold">Relatório de Locação</h2>
+
+      {encerramentosPendentes.length > 0 && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Existem {encerramentosPendentes.length} atividade(s) de encerramento aguardando vínculo patrimonial. As unidades permanecem abertas até a regularização.
+        </div>
+      )}
 
       <div className="grid gap-3 md:grid-cols-[220px_1fr_auto] md:items-end">
         <div>

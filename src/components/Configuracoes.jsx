@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Settings } from "lucide-react";
 
 export default function Configuracoes() {
   const [balancinhos, setBalancinhos] = useState({});
@@ -33,7 +34,7 @@ export default function Configuracoes() {
 
   return (
     <div className="p-4 space-y-6">
-      <h2 className="text-lg font-bold">⚙️ Configurações de Materiais</h2>
+      <h2 className="flex items-center gap-2 text-lg font-bold"><Settings size={20} aria-hidden="true" />Configurações de Materiais</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>

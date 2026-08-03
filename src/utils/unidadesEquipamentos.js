@@ -26,6 +26,7 @@ export const criarUnidadesDaEntrada = (atividade) => {
 
     return {
       idUnidade,
+      idEquipamento: item.idEquipamento || "",
       idItemOrigem: item.idItem || idUnidade,
       atividadeOrigemId: atividade.id,
       indiceUnidade: indice + 1,

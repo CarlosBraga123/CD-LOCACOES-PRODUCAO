@@ -11,6 +11,11 @@ import {
   montarPayloadOrdemServico,
   obterStatusOrdemServico,
 } from "../utils/ordemServico";
+import {
+  obterPatrimonioAtual,
+  obterRegistrosPatrimonio,
+} from "../utils/patrimoniosEquipamentos";
+import { obterPatrimonioFisicoAtualDaUnidade } from "../utils/equipamentosPatrimonio";
 
 const servicosOS = [
   "Instalação",
@@ -62,6 +67,26 @@ const obterQuantidadeOS = (atividade) => {
   return Number(atividade?.quantidade) || 1;
 };
 
+const obterAvisoRetiradaContrapesoOS = (item, atividade) => {
+  const equipamento = item?.equipamento || atividade?.equipamento;
+  if (equipamento !== "Balancinho") return "";
+
+  const servico = normalizarServicoOS(atividade?.servico);
+  if (!["remocao", "somente recolhimento"].includes(servico)) return "";
+
+  const possuiContrapeso =
+    typeof item?.usaContrapeso === "boolean"
+      ? item.usaContrapeso
+      : typeof item?.usaContrapesoAnterior === "boolean"
+        ? item.usaContrapesoAnterior
+        : atividade?.usaContrapeso === true;
+  if (!possuiContrapeso) return "";
+
+  return servico === "remocao"
+    ? "Retirar Kit Contrapeso"
+    : "Recolher Kit Contrapeso";
+};
+
 const formatarValorOS = (valor, fallback = "Não informado") => {
   const texto = String(valor ?? "").trim();
   return texto || fallback;
@@ -73,7 +98,12 @@ const formatarTipoItemOS = (item, atividade) =>
 
 const montarDetalhesItemOS = (item, atividade) => {
   const detalhes = [];
-  const patrimonio = formatarValorOS(item.numeroPatrimonio);
+  const patrimonioFisico = obterPatrimonioFisicoAtualDaUnidade(item);
+  const patrimonio = formatarValorOS(
+    patrimonioFisico ||
+      obterPatrimonioAtual(item, obterRegistrosPatrimonio()),
+    atividade?.pendenteVinculoPatrimonio ? "Pendente de vínculo" : "Não informado"
+  );
   const servico = normalizarServicoOS(atividade?.servico);
   const equipamento = item.equipamento || atividade.equipamento;
 
@@ -107,6 +137,7 @@ const montarDetalhesItemOS = (item, atividade) => {
     }
 
     const alteracao = normalizarAlteracaoContrapesoOS(item);
+    const avisoRetirada = obterAvisoRetiradaContrapesoOS(item, atividade);
     if (servico === "deslocamento") {
       detalhes.push(
         `Kit Contrapeso: ${
@@ -117,6 +148,8 @@ const montarDetalhesItemOS = (item, atividade) => {
               : "Sem alteração"
         }`
       );
+    } else if (avisoRetirada) {
+      detalhes.push(avisoRetirada);
     } else {
       detalhes.push(
         `Kit Contrapeso: ${item.usaContrapeso ? "Sim" : "Não"}`
@@ -538,6 +571,10 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
   }));
   const numerosPatrimonioValidos = obterNumerosPatrimonioValidos(atividade);
   const alteracaoContrapeso = normalizarAlteracaoContrapesoOS(atividade);
+  const avisoRetiradaContrapesoLegado =
+    itensEquipamentos.length === 0
+      ? obterAvisoRetiradaContrapesoOS({}, atividade)
+      : "";
 
   const atualizarNumeroOSCampo = (valor) => {
     const valorNormalizado = valor.replace(/[^a-zA-Z0-9/-]/g, "");
@@ -596,6 +633,9 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
           ],
         ]
       : []),
+    ...(avisoRetiradaContrapesoLegado
+      ? [["Kit Contrapeso", avisoRetiradaContrapesoLegado]]
+      : []),
     ["Ancoragem", atividade?.ancoragem],
     ["Capacidade", atividade?.tipoMiniGrua],
     ["Tipo específico", atividade?.tipoBalancinho || atividade?.tipoMiniGrua],
@@ -606,6 +646,9 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
             numerosPatrimonioValidos.join(", "),
           ],
         ]
+      : []),
+    ...(atividade?.pendenteVinculoPatrimonio && itensEquipamentos.length === 0
+      ? [["Patrimônio", "Pendente de vínculo"]]
       : []),
   ].filter(([, valor]) => valor);
 

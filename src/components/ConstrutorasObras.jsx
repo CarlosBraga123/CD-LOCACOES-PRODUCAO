@@ -45,6 +45,8 @@ import {
   obterServicosExecutadosObra,
 } from "../utils/detalhesObra";
 import AtividadeResumoCard from "./AtividadeResumoCard";
+import PatrimonioEquipamentosModal from "./PatrimonioEquipamentosModal";
+import { obterRegistrosPatrimonio } from "../utils/patrimoniosEquipamentos";
 
 const texto = (valor) => String(valor || "").trim();
 
@@ -146,6 +148,8 @@ export default function ConstrutorasObras({
   const [construtoras, setConstrutoras] = useState([]);
   const [obras, setObras] = useState([]);
   const [atividades, setAtividades] = useState([]);
+  const [registrosPatrimonio, setRegistrosPatrimonio] = useState([]);
+  const [modalPatrimonio, setModalPatrimonio] = useState(null);
   const [visualizacao, setVisualizacao] = useState("ativos");
   const [busca, setBusca] = useState("");
   const [construtoraAbertaId, setConstrutoraAbertaId] = useState(null);
@@ -183,6 +187,7 @@ export default function ConstrutorasObras({
     setConstrutoras(JSON.parse(localStorage.getItem("construtoras") || "[]"));
     setObras(JSON.parse(localStorage.getItem("obras") || "[]"));
     setAtividades(JSON.parse(localStorage.getItem("atividades") || "[]"));
+    setRegistrosPatrimonio(obterRegistrosPatrimonio());
     setDadosCarregados(true);
   }, []);
 
@@ -251,6 +256,24 @@ export default function ConstrutorasObras({
         }
       ),
     [obrasAtivas]
+  );
+
+  const todosEquipamentosAtivos = useMemo(
+    () =>
+      obras.flatMap((obra) =>
+        obterUnidadesEquipamentosAtivos(obra, atividades, registrosPatrimonio).map(
+          (item) => ({
+            ...item,
+            obraId: obra.id || "",
+            obraNome: obra.nome || "",
+            construtoraNome:
+              obterConstrutoraDaObra(obra, construtoras)?.nome ||
+              obra.construtora ||
+              "",
+          })
+        )
+      ),
+    [atividades, construtoras, obras, registrosPatrimonio]
   );
 
   const dadosConstrutoras = useMemo(() => {
@@ -1163,6 +1186,11 @@ export default function ConstrutorasObras({
 
   const renderEquipamentosAtivos = () => (
     <div className="space-y-2">
+      <div className="flex justify-end">
+        <button type="button" onClick={() => setModalPatrimonio({ modo: "consulta" })} className="rounded-lg border bg-white px-3 py-2 text-sm text-blue-700 shadow-sm">
+          Consultar patrimônio
+        </button>
+      </div>
       <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-6">
         {[
           ["Obras", resumoGeralAtivos.obras],
@@ -1215,6 +1243,18 @@ export default function ConstrutorasObras({
                 {aberta && (
                   <div className="px-3 pb-3">
                     {renderDetalheObra({ obra, construtora, resumo, compacto: true })}
+                    <button
+                      type="button"
+                      onClick={() => setModalPatrimonio({
+                        modo: "obra",
+                        obra,
+                        construtora,
+                        itens: obterUnidadesEquipamentosAtivos(obra, atividades, registrosPatrimonio),
+                      })}
+                      className="mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-blue-700 sm:w-auto"
+                    >
+                      Atualizar patrimônios
+                    </button>
                   </div>
                 )}
               </article>
@@ -2453,6 +2493,27 @@ export default function ConstrutorasObras({
         : visualizacao === "gestao"
           ? renderGestao()
           : renderDetalhesCompletosObra()}
+      {modalPatrimonio && (
+        <PatrimonioEquipamentosModal
+          contexto={modalPatrimonio}
+          registros={registrosPatrimonio}
+          equipamentosAtivos={todosEquipamentosAtivos}
+          obras={obras}
+          onClose={() => setModalPatrimonio(null)}
+          onSubstituicaoConcluida={() => {
+            setAtividades((atuais) => [...atuais]);
+            setModalPatrimonio(null);
+          }}
+          onRegistrosAlterados={(registros) => {
+            setRegistrosPatrimonio(registros);
+            setModalPatrimonio((atual) =>
+              atual?.obra
+                ? { ...atual, itens: obterUnidadesEquipamentosAtivos(atual.obra, atividades, registros) }
+                : atual
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

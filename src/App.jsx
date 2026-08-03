@@ -12,6 +12,24 @@ import TabelaComercial from "./components/TabelaComercial";
 import Usuarios from "./components/Usuarios";
 import Login from "./components/Login";
 import ListaDeTarefas from "./components/ListaDeTarefas";
+import ControlePatrimonios from "./components/ControlePatrimonios";
+import {
+  BadgeDollarSign,
+  Boxes,
+  Building2,
+  CalendarDays,
+  ClipboardList,
+  DatabaseBackup,
+  FileBarChart,
+  LayoutDashboard,
+  ListTodo,
+  LogOut,
+  Menu,
+  PackageSearch,
+  Settings,
+  Users,
+  Wallet,
+} from "lucide-react";
 
 // 👇 Simula um login automático como admin
 const usuarioAdminSimulado = {
@@ -50,6 +68,7 @@ export default function App() {
     switch (selectedPage) {
       case "dashboard": return "Painel de Controle";
       case "construtorasobras": return "Construtoras e Obras";
+      case "controlepatrimonios": return "Controle de Patrimônios";
       case "atividades": return "Atividades";
       case "relatoriofinanceiro": return "Relatório Financeiro";
       case "relatorioservicos": return "Relatório de Serviços";
@@ -65,8 +84,9 @@ export default function App() {
 
   const renderContent = () => {
     switch (selectedPage) {
-      case "dashboard": return <Dashboard abrirAtividade={abrirAtividade} />;
+      case "dashboard": return <Dashboard abrirAtividade={abrirAtividade} navegar={navegar} />;
       case "construtorasobras": return <ConstrutorasObras navegar={navegar} abrirAtividade={abrirAtividade} contextoNavegacao={contextoNavegacao} limparContextoNavegacao={limparContextoNavegacao} />;
+      case "controlepatrimonios": return <ControlePatrimonios />;
       case "atividades": return <Atividades contextoNavegacao={contextoNavegacao} limparContextoNavegacao={limparContextoNavegacao} />;
       case "agenda": return <Agenda />;
       case "relatoriofinanceiro": return <RelatorioFinanceiro />;
@@ -87,7 +107,7 @@ export default function App() {
         className="sm:hidden fixed top-4 left-4 z-50 bg-white border shadow-md p-2 rounded"
         onClick={() => setMenuAberto(!menuAberto)}
       >
-        ☰
+        <Menu size={20} aria-hidden="true" />
       </button>
 
       <aside
@@ -102,35 +122,36 @@ export default function App() {
         </div>
         <nav className="flex flex-col space-y-2">
           {(usuarioLogado.tipo === "admin" || usuarioLogado.tipo === "gestor") && (
-            <button onClick={() => { setSelectedPage("dashboard"); setMenuAberto(false); }} className="text-left hover:text-blue-600">🏠 Início</button>
+            <button onClick={() => { setSelectedPage("dashboard"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><LayoutDashboard size={20} aria-hidden="true" />Início</button>
           )}
           {usuarioLogado.tipo === "admin" && (
             <>
-              <button onClick={() => navegar("construtorasobras")} className="text-left hover:text-blue-600">Construtoras e Obras</button>
+              <button onClick={() => navegar("construtorasobras")} className="flex items-center gap-2 text-left hover:text-blue-600"><Building2 size={20} aria-hidden="true" />Construtoras e Obras</button>
+              <button onClick={() => navegar("controlepatrimonios")} className="flex items-center gap-2 text-left hover:text-blue-600"><PackageSearch size={20} aria-hidden="true" />Controle de Patrimônios</button>
             </>
           )}
-          <button onClick={() => navegar("atividades")} className="text-left hover:text-blue-600">📋 Atividades</button>
+          <button onClick={() => navegar("atividades")} className="flex items-center gap-2 text-left hover:text-blue-600"><ClipboardList size={20} aria-hidden="true" />Atividades</button>
           <button
   onClick={() => { setSelectedPage("agenda"); setMenuAberto(false); }}
-  className="text-left hover:text-blue-600"
+  className="flex items-center gap-2 text-left hover:text-blue-600"
 >
-  📆 Agenda
+  <CalendarDays size={20} aria-hidden="true" />Agenda
 </button>
 
-          <button onClick={() => { setSelectedPage("tarefas"); setMenuAberto(false); }} className="text-left hover:text-blue-600">📝 Lista de Tarefas</button>
+          <button onClick={() => { setSelectedPage("tarefas"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><ListTodo size={20} aria-hidden="true" />Lista de Tarefas</button>
           {(usuarioLogado.tipo === "admin" || usuarioLogado.tipo === "gestor") && (
             <>
-              <button onClick={() => { setSelectedPage("relatoriofinanceiro"); setMenuAberto(false); }} className="text-left hover:text-blue-600">💰 Relatório Financeiro</button>
-              <button onClick={() => { setSelectedPage("relatorioservicos"); setMenuAberto(false); }} className="text-left hover:text-blue-600">📄 Relatório de Serviços</button>
-              <button onClick={() => { setSelectedPage("relatoriolocacao"); setMenuAberto(false); }} className="text-left hover:text-blue-600">Relatório de Locação</button>
+              <button onClick={() => { setSelectedPage("relatoriofinanceiro"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Wallet size={20} aria-hidden="true" />Relatório Financeiro</button>
+              <button onClick={() => { setSelectedPage("relatorioservicos"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><FileBarChart size={20} aria-hidden="true" />Relatório de Serviços</button>
+              <button onClick={() => { setSelectedPage("relatoriolocacao"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Boxes size={20} aria-hidden="true" />Relatório de Locação</button>
             </>
           )}
           {usuarioLogado.tipo === "admin" && (
             <>
-              <button onClick={() => { setSelectedPage("backup"); setMenuAberto(false); }} className="text-left hover:text-blue-600">💾 Backup</button>
-              <button onClick={() => { setSelectedPage("usuarios"); setMenuAberto(false); }} className="text-left hover:text-blue-600">👥 Usuários</button>
-              <button onClick={() => { setSelectedPage("tabelacomercial"); setMenuAberto(false); }} className="text-left hover:text-blue-600">Tabela Comercial</button>
-              <button onClick={() => { setSelectedPage("configuracoes"); setMenuAberto(false); }} className="text-left hover:text-blue-600">⚙️ Configurações</button>
+              <button onClick={() => { setSelectedPage("backup"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><DatabaseBackup size={20} aria-hidden="true" />Backup</button>
+              <button onClick={() => { setSelectedPage("usuarios"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Users size={20} aria-hidden="true" />Usuários</button>
+              <button onClick={() => { setSelectedPage("tabelacomercial"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><BadgeDollarSign size={20} aria-hidden="true" />Tabela Comercial</button>
+              <button onClick={() => { setSelectedPage("configuracoes"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Settings size={20} aria-hidden="true" />Configurações</button>
             </>
           )}
           <button
@@ -139,9 +160,9 @@ export default function App() {
               setUsuarioLogado(null);
               location.reload();
             }}
-            className="text-left text-red-500 hover:text-red-700"
+            className="flex items-center gap-2 text-left text-red-500 hover:text-red-700"
           >
-            🚪 Sair
+            <LogOut size={20} aria-hidden="true" />Sair
           </button>
         </nav>
       </aside>

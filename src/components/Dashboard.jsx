@@ -3,10 +3,14 @@ import { calcularPeriodosLocacao } from "../utils/locacaoFinanceira";
 import { formatarMoeda } from "../utils/moeda";
 import { obterObraDaAtividade, normalizarTexto } from "../utils/obras";
 import AtividadeResumoCard from "./AtividadeResumoCard";
+import {
+  obterPendenciasOperacionais,
+  obterQuantidadeVinculosPendentes,
+} from "../utils/pendenciasOperacionais";
 
 const servicosValidos = ["Instalação", "Deslocamento", "Manutenção", "Ascensão", "Remoção"];
 
-export default function Dashboard({ abrirAtividade }) {
+export default function Dashboard({ abrirAtividade, navegar }) {
   const [tarefasPendentes, setTarefasPendentes] = useState([]);
   const [usuario, setUsuario] = useState("Usuário");
   const [recentes, setRecentes] = useState([]);
@@ -260,7 +264,23 @@ export default function Dashboard({ abrirAtividade }) {
     });
 
     setFaturamentoMeses(faturamento);
+    const pendenciasOperacionais = obterPendenciasOperacionais(todas);
+    const equipamentosPendentes = pendenciasOperacionais.reduce(
+      (total, { atividade }) =>
+        total + obterQuantidadeVinculosPendentes(atividade),
+      0
+    );
     setCards([
+      {
+        titulo: "Pendências Operacionais",
+        valor: pendenciasOperacionais.length,
+        cor: "bg-amber-100",
+        detalhes: {
+          "Atividades pendentes": pendenciasOperacionais.length,
+          "Equipamentos pendentes": equipamentosPendentes,
+        },
+        acao: "pendencias-operacionais",
+      },
       { titulo: "Servicos nos ultimos 7 dias", valor: atividadesRecentes.length, cor: "bg-blue-100" },
       { titulo: "Servicos Agendados", valor: atividadesAgendadas.length, cor: "bg-yellow-100" },
       {
@@ -337,7 +357,7 @@ export default function Dashboard({ abrirAtividade }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
         {cards.map((card, idx) => (
-          <div key={idx} className={`${card.cor} p-4 rounded shadow-sm`}>
+          <button type="button" key={idx} onClick={() => card.acao === "pendencias-operacionais" && navegar?.("atividades", { destino: "atividades", acao: "filtrar-pendencias-operacionais" })} className={`${card.cor} p-4 rounded shadow-sm text-left ${card.acao ? "cursor-pointer hover:ring-2 hover:ring-amber-300" : ""}`}>
             <div className="text-sm text-gray-600">{card.titulo}</div>
             <div className="text-2xl font-bold">{card.valor}</div>
             {card.detalhes && (
@@ -352,7 +372,7 @@ export default function Dashboard({ abrirAtividade }) {
                   ))}
               </div>
             )}
-          </div>
+          </button>
         ))}
       </div>
 

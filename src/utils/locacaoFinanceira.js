@@ -3,6 +3,7 @@ import {
   criarUnidadesDaEntrada,
   localizarIndiceUnidade,
 } from "./unidadesEquipamentos";
+import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
 
 export const atividadeIniciaLocacao = (atividade) => {
   if (atividade.iniciaLocacao !== undefined) return atividade.iniciaLocacao === true;
@@ -155,6 +156,19 @@ export const calcularPeriodosLocacao = ({
   atividadesBase
     .filter((atividade) => atividade.dataLiberacao)
     .sort((a, b) => new Date(a.dataLiberacao) - new Date(b.dataLiberacao))
+    .map((atividade) => {
+      if (
+        atividade.pendenteVinculoPatrimonio !== true ||
+        atividadeIniciaLocacao(atividade)
+      ) {
+        return atividade;
+      }
+      const vinculados = (atividade.itensEquipamentos || []).filter(
+        itemPossuiVinculoPatrimonial
+      ).length;
+      return vinculados > 0 ? { ...atividade, quantidade: vinculados } : null;
+    })
+    .filter(Boolean)
     .flatMap((atividade) => obterMovimentosLocacao(atividade))
     .forEach((atividade) => {
       const quantidade = Number(atividade.quantidade) || 1;
