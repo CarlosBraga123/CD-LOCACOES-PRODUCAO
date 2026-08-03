@@ -1,8 +1,10 @@
 import {
+  CHAVE_PATRIMONIOS_EQUIPAMENTOS,
   normalizarNumeroPatrimonio,
   obterIdItemPatrimonio,
   obterPatrimonioAtual,
 } from "./patrimoniosEquipamentos";
+import { CHAVE_AJUSTES_CONFIGURACAO } from "./ajustesConfiguracaoEquipamentos";
 
 export const CHAVE_EQUIPAMENTOS_PATRIMONIO = "equipamentosPatrimonio";
 export const CHAVE_SUBSTITUICOES_EQUIPAMENTOS = "substituicoesEquipamentos";
@@ -52,6 +54,129 @@ export const salvarSubstituicoesEquipamentos = (substituicoes) => {
     CHAVE_SUBSTITUICOES_EQUIPAMENTOS,
     JSON.stringify(Array.isArray(substituicoes) ? substituicoes : [])
   );
+};
+
+const identidadesDoEquipamento = (equipamento = {}) =>
+  new Set(
+    [equipamento.idEquipamento, equipamento.idItem, equipamento.idItemOrigem]
+      .map((valor) => String(valor || "").trim())
+      .filter(Boolean)
+  );
+
+export const equipamentoPossuiHistoricoOperacional = (
+  equipamento,
+  atividades = []
+) => {
+  const identidades = identidadesDoEquipamento(equipamento);
+  const patrimonio = normalizarNumeroPatrimonio(
+    equipamento?.numeroPatrimonioAtual
+  );
+  return atividades.some((atividade) => {
+    const atividadeId = String(atividade?.id || "");
+    if (
+      identidades.has(String(atividade?.idEquipamento || "")) ||
+      (patrimonio &&
+        normalizarNumeroPatrimonio(
+          atividade?.numeroPatrimonio || atividade?.numeroPatrimonioAtual
+        ) === patrimonio) ||
+      [...identidades].some((id) =>
+        id.startsWith(`legado:${atividadeId}:`)
+      )
+    ) {
+      return true;
+    }
+    return (atividade?.itensEquipamentos || []).some((item) => {
+      const idsItem = [
+        item.idEquipamento,
+        item.idItem,
+        item.idItemOrigem,
+        item.idUnidade,
+      ].map((valor) => String(valor || ""));
+      return (
+        idsItem.some((id) => identidades.has(id)) ||
+        (patrimonio &&
+          normalizarNumeroPatrimonio(
+            item.numeroPatrimonio || item.numeroPatrimonioAtual
+          ) === patrimonio)
+      );
+    });
+  });
+};
+
+export const excluirEquipamentoPatrimonioSeguro = ({
+  equipamento,
+  equipamentos = [],
+  registrosPatrimonio = [],
+  ajustesConfiguracao = [],
+  substituicoes = [],
+  atividades = [],
+}) => {
+  if (equipamento?.situacao === "LOCADO") {
+    throw new Error("Este equipamento está locado.");
+  }
+  if (equipamento?.situacao !== "NO_GALPAO") {
+    throw new Error("Somente equipamentos no galpão podem ser excluídos.");
+  }
+  if (equipamentoPossuiHistoricoOperacional(equipamento, atividades)) {
+    throw new Error(
+      "Este equipamento possui histórico operacional.\n\nUtilize a opção Inativar quando disponível."
+    );
+  }
+
+  const identidades = identidadesDoEquipamento(equipamento);
+  const idEquipamento = String(equipamento.idEquipamento || "");
+  const referenciaIdentidade = (registro) =>
+    [registro?.idItem, registro?.idUnidade, registro?.idEquipamento].some(
+      (valor) => identidades.has(String(valor || ""))
+    );
+  const novosEquipamentos = equipamentos.filter(
+    (item) => String(item.idEquipamento || "") !== idEquipamento
+  );
+  const novosRegistros = registrosPatrimonio.filter(
+    (registro) => !referenciaIdentidade(registro)
+  );
+  const novosAjustes = ajustesConfiguracao.filter(
+    (ajuste) => !referenciaIdentidade(ajuste)
+  );
+  const novasSubstituicoes = substituicoes.filter(
+    (substituicao) =>
+      String(substituicao.equipamentoOrigemId || "") !== idEquipamento &&
+      String(substituicao.equipamentoDestinoId || "") !== idEquipamento
+  );
+
+  const chaves = [
+    CHAVE_EQUIPAMENTOS_PATRIMONIO,
+    CHAVE_PATRIMONIOS_EQUIPAMENTOS,
+    CHAVE_AJUSTES_CONFIGURACAO,
+    CHAVE_SUBSTITUICOES_EQUIPAMENTOS,
+  ];
+  const anteriores = new Map(
+    chaves.map((chave) => [chave, localStorage.getItem(chave)])
+  );
+  try {
+    salvarEquipamentosPatrimonio(novosEquipamentos);
+    localStorage.setItem(
+      CHAVE_PATRIMONIOS_EQUIPAMENTOS,
+      JSON.stringify(novosRegistros)
+    );
+    localStorage.setItem(
+      CHAVE_AJUSTES_CONFIGURACAO,
+      JSON.stringify(novosAjustes)
+    );
+    salvarSubstituicoesEquipamentos(novasSubstituicoes);
+  } catch (erro) {
+    anteriores.forEach((valor, chave) => {
+      if (valor === null) localStorage.removeItem(chave);
+      else localStorage.setItem(chave, valor);
+    });
+    throw erro;
+  }
+  return {
+    equipamentos: novosEquipamentos,
+    registros: novosRegistros,
+    ajustes: novosAjustes,
+    substituicoes: novasSubstituicoes,
+  };
 };
 
 export const obterIdEquipamentoDoItem = (item, equipamentos = []) => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, CircleAlert, CircleDot } from "lucide-react";
 import { normalizarTexto, atividadePertenceObra } from "../utils/obras";
 import {
   criarFormularioConstrutora,
@@ -46,9 +47,44 @@ import {
 } from "../utils/detalhesObra";
 import AtividadeResumoCard from "./AtividadeResumoCard";
 import PatrimonioEquipamentosModal from "./PatrimonioEquipamentosModal";
-import { obterRegistrosPatrimonio } from "../utils/patrimoniosEquipamentos";
+import {
+  obterIdItemPatrimonio,
+  obterRegistrosPatrimonio,
+} from "../utils/patrimoniosEquipamentos";
+import {
+  obterAjustesConfiguracaoEquipamentos,
+  obterSituacaoConferenciaUnidade,
+} from "../utils/ajustesConfiguracaoEquipamentos";
 
 const texto = (valor) => String(valor || "").trim();
+const dataBrConferencia = (data) => {
+  const [ano, mes, dia] = String(data || "").split("-");
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : data || "";
+};
+const rotuloUnidadeInstalada = (item) =>
+  item.equipamento === "Balancinho"
+    ? `Balancinho ${item.tipoBalancinho === "Manual" ? "Manual" : "Elétrico"}`
+    : item.equipamento === "Mini Grua"
+      ? `Mini Grua ${item.tipoMiniGrua === "1T" ? "1 T" : item.tipoMiniGrua === "500kg" ? "500 kg" : item.tipoMiniGrua || ""}`.trim()
+      : item.equipamento || "Equipamento";
+const montarUnidadesParaConferencia = (itens, registros, ajustes) =>
+  (Array.isArray(itens) ? itens : [])
+    .map((item) => ({
+      item,
+      conferencia: obterSituacaoConferenciaUnidade(item, registros, ajustes),
+    }))
+    .sort((a, b) => {
+      const ordem = { pendente: 0, parcial: 1, conferido: 2 };
+      const porStatus = ordem[a.conferencia.status] - ordem[b.conferencia.status];
+      if (porStatus) return porStatus;
+      if (!a.conferencia.patrimonio && b.conferencia.patrimonio) return -1;
+      if (a.conferencia.patrimonio && !b.conferencia.patrimonio) return 1;
+      return String(a.conferencia.patrimonio || "").localeCompare(
+        String(b.conferencia.patrimonio || ""),
+        "pt-BR",
+        { numeric: true }
+      );
+    });
 
 const normalizarBusca = (valor) =>
   normalizarTexto(valor).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -1184,6 +1220,32 @@ export default function ConstrutorasObras({
     );
   };
 
+  const abrirConferenciaIndividual = (obra, construtora, itens, indice) => {
+    const item = itens[indice];
+    if (!item) return;
+    setModalPatrimonio({
+      modo: "obra",
+      fluxoIndividual: true,
+      obra,
+      construtora,
+      sequencia: itens,
+      indice,
+      unidadeSelecionada: item,
+      itens: [item],
+    });
+  };
+
+  const navegarConferenciaIndividual = (direcao) => {
+    setModalPatrimonio((atual) => {
+      if (!atual?.fluxoIndividual) return atual;
+      const indice = atual.indice + direcao;
+      const item = atual.sequencia?.[indice];
+      return item
+        ? { ...atual, indice, unidadeSelecionada: item, itens: [item] }
+        : atual;
+    });
+  };
+
   const renderEquipamentosAtivos = () => (
     <div className="space-y-2">
       <div className="flex justify-end">
@@ -1216,6 +1278,22 @@ export default function ConstrutorasObras({
           {obrasAtivas.map(({ obra, construtora, resumo, totalAtivos, categorias }) => {
             const aberta = String(obraAtivaAbertaId) === String(obra.id || obra.nome);
             const categoriasVisiveis = categorias.filter((categoria) => categoria.valor > 0);
+            const ajustesConfiguracao = obterAjustesConfiguracaoEquipamentos();
+            const unidadesInstaladas = montarUnidadesParaConferencia(
+              obterUnidadesEquipamentosAtivos(
+                obra,
+                atividades,
+                registrosPatrimonio
+              ),
+              registrosPatrimonio,
+              ajustesConfiguracao
+            );
+            const equipamentosConferidos = unidadesInstaladas.filter(
+              ({ conferencia }) => conferencia.status === "conferido"
+            ).length;
+            const percentualConferencia = unidadesInstaladas.length
+              ? Math.round((equipamentosConferidos / unidadesInstaladas.length) * 100)
+              : 100;
 
             return (
               <article key={obra.id || obra.nome} className="rounded-lg border bg-white shadow-sm">
@@ -1243,6 +1321,26 @@ export default function ConstrutorasObras({
                 {aberta && (
                   <div className="px-3 pb-3">
                     {renderDetalheObra({ obra, construtora, resumo, compacto: true })}
+                    <section className="mt-3 rounded-xl border bg-gray-50 p-3">
+                      <div className="flex items-end justify-between gap-3">
+                        <div><h4 className="font-bold">Conferência da obra</h4><p className="text-sm text-gray-600">{equipamentosConferidos} de {unidadesInstaladas.length} equipamentos conferidos</p></div>
+                        <p className="text-xl font-bold text-blue-700">{percentualConferencia}%</p>
+                      </div>
+                      <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-green-600" style={{ width: `${percentualConferencia}%` }} /></div>
+                    </section>
+                    <section className="mt-3">
+                      <h4 className="font-bold">Equipamentos Instalados</h4>
+                      <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                        {unidadesInstaladas.map(({ item, conferencia }, indice) => {
+                          const visual = conferencia.status === "conferido"
+                            ? { rotulo: "Conferido", classe: "border-green-200 bg-green-50 text-green-800", Icone: CheckCircle2 }
+                            : conferencia.status === "parcial"
+                              ? { rotulo: "Parcial", classe: "border-orange-200 bg-orange-50 text-orange-800", Icone: CircleDot }
+                              : { rotulo: "Pendente", classe: "border-red-200 bg-red-50 text-red-800", Icone: CircleAlert };
+                          return <article key={obterIdItemPatrimonio(item) || indice} className="rounded-xl border bg-white p-3"><div className="flex items-start justify-between gap-2"><div><p className="font-mono text-lg font-bold text-blue-700">{conferencia.patrimonio || "Sem patrimônio"}</p><p className="font-semibold">{rotuloUnidadeInstalada(item)}</p></div><span className={`flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${visual.classe}`}><visual.Icone className="h-4 w-4" />{visual.rotulo}</span></div>{item.equipamento === "Balancinho" && <div className="mt-2 text-sm text-gray-600"><p>Tamanho: {conferencia.tamanho ? `${conferencia.tamanho} m` : "Não informado"}</p><p>Ancoragem: {conferencia.ancoragem || "Não informada"}</p><p>Kit Contrapeso: {typeof conferencia.usaContrapeso === "boolean" ? (conferencia.usaContrapeso ? "Sim" : "Não") : "Não conferido"}</p></div>}{conferencia.ultimaConferencia && <p className="mt-2 text-xs text-gray-500">Última conferência: {dataBrConferencia(conferencia.ultimaConferencia)}</p>}<button type="button" onClick={() => abrirConferenciaIndividual(obra, construtora, unidadesInstaladas.map((entrada) => entrada.item), indice)} className="mt-3 w-full rounded-lg border px-3 py-2 text-sm font-semibold text-blue-700">Conferir</button></article>;
+                        })}
+                      </div>
+                    </section>
                     <button
                       type="button"
                       onClick={() => setModalPatrimonio({
@@ -2495,22 +2593,54 @@ export default function ConstrutorasObras({
           : renderDetalhesCompletosObra()}
       {modalPatrimonio && (
         <PatrimonioEquipamentosModal
+          key={modalPatrimonio.fluxoIndividual ? obterIdItemPatrimonio(modalPatrimonio.itens?.[0]) : modalPatrimonio.modo}
           contexto={modalPatrimonio}
           registros={registrosPatrimonio}
           equipamentosAtivos={todosEquipamentosAtivos}
           obras={obras}
           onClose={() => setModalPatrimonio(null)}
+          navegacaoConferencia={modalPatrimonio.fluxoIndividual ? {
+            temAnterior: modalPatrimonio.indice > 0,
+            temProximo: modalPatrimonio.indice < (modalPatrimonio.sequencia?.length || 0) - 1,
+            anterior: () => navegarConferenciaIndividual(-1),
+            proximo: () => navegarConferenciaIndividual(1),
+          } : null}
           onSubstituicaoConcluida={() => {
             setAtividades((atuais) => [...atuais]);
             setModalPatrimonio(null);
           }}
           onRegistrosAlterados={(registros) => {
             setRegistrosPatrimonio(registros);
-            setModalPatrimonio((atual) =>
-              atual?.obra
-                ? { ...atual, itens: obterUnidadesEquipamentosAtivos(atual.obra, atividades, registros) }
-                : atual
-            );
+            setModalPatrimonio((atual) => {
+              if (!atual?.obra) return atual;
+              const reconstruidos = obterUnidadesEquipamentosAtivos(
+                atual.obra,
+                atividades,
+                registros
+              );
+              if (!atual.fluxoIndividual) return { ...atual, itens: reconstruidos };
+              const reconstruidosPorId = new Map(
+                reconstruidos.map((item) => [obterIdItemPatrimonio(item), item])
+              );
+              const sequenciaAtualizada = (atual.sequencia || [])
+                .map((item) =>
+                  reconstruidosPorId.get(obterIdItemPatrimonio(item))
+                )
+                .filter(Boolean);
+              const indiceAtualizado = Math.min(
+                atual.indice,
+                Math.max(0, sequenciaAtualizada.length - 1)
+              );
+              return {
+                ...atual,
+                sequencia: sequenciaAtualizada,
+                indice: indiceAtualizado,
+                unidadeSelecionada: sequenciaAtualizada[indiceAtualizado] || null,
+                itens: sequenciaAtualizada[indiceAtualizado]
+                  ? [sequenciaAtualizada[indiceAtualizado]]
+                  : [],
+              };
+            });
           }}
         />
       )}

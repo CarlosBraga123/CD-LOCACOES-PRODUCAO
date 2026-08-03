@@ -19,6 +19,11 @@ import {
   obterIdEquipamentoDoItem,
 } from "./equipamentosPatrimonio";
 import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
+import {
+  ajustePertenceUnidade,
+  aplicarAjusteConfiguracaoNaUnidade,
+  obterAjustesConfiguracaoEquipamentos,
+} from "./ajustesConfiguracaoEquipamentos";
 
 const ordemBalancinho = ["Balancinho Elétrico", "Balancinho Manual", "Kit Contrapeso"];
 const ordemMiniGrua = ["Mini Grua 500kg", "Mini Grua 1T", "Mini Grua"];
@@ -125,6 +130,36 @@ export const obterUnidadesEquipamentosAtivos = (
   equipamentosMestres = obterEquipamentosPatrimonio()
 ) => {
   const unidades = [];
+  const ajustes = obterAjustesConfiguracaoEquipamentos()
+    .filter(
+      (ajuste) =>
+        !ajuste.obraId || String(ajuste.obraId) === String(obra?.id || "")
+    )
+    .sort((a, b) =>
+      String(a.data || "").localeCompare(String(b.data || "")) ||
+      String(a.criadoEm || "").localeCompare(String(b.criadoEm || ""))
+    );
+  let indiceAjuste = 0;
+  const aplicarAjustesAte = (dataLimite, incluirDataLimite = true) => {
+    while (
+      indiceAjuste < ajustes.length &&
+      (incluirDataLimite
+        ? String(ajustes[indiceAjuste].data || "") <= dataLimite
+        : String(ajustes[indiceAjuste].data || "") < dataLimite)
+    ) {
+      const ajuste = ajustes[indiceAjuste];
+      const indiceUnidade = unidades.findIndex((unidade) =>
+        ajustePertenceUnidade(ajuste, unidade)
+      );
+      if (indiceUnidade >= 0) {
+        unidades[indiceUnidade] = aplicarAjusteConfiguracaoNaUnidade(
+          unidades[indiceUnidade],
+          ajuste
+        );
+      }
+      indiceAjuste += 1;
+    }
+  };
 
   atividades
     .filter(
@@ -143,6 +178,9 @@ export const obterUnidadesEquipamentosAtivos = (
       return String(a.id ?? "").localeCompare(String(b.id ?? ""));
     })
     .forEach((atividade) => {
+      const dataAtividade = String(atividade.dataLiberacao || "");
+      aplicarAjustesAte(dataAtividade, false);
+      try {
       const iniciaLocacao = atividadeIniciaLocacao(atividade);
       const encerraLocacao = atividadeEncerraLocacao(atividade);
       const itens = Array.isArray(atividade.itensEquipamentos)
@@ -216,7 +254,12 @@ export const obterUnidadesEquipamentosAtivos = (
           quantidadeRestante -= 1;
         }
       }
+      } finally {
+        aplicarAjustesAte(dataAtividade);
+      }
     });
+
+  aplicarAjustesAte("9999-12-31");
 
   const unidadesComIdentidade = aplicarPatrimoniosAdministrativos(
     unidades,

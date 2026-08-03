@@ -4,6 +4,11 @@ import {
   localizarIndiceUnidade,
 } from "./unidadesEquipamentos";
 import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
+import {
+  ajustePertenceUnidade,
+  aplicarAjusteConfiguracaoNaUnidade,
+  obterAjustesConfiguracaoEquipamentos,
+} from "./ajustesConfiguracaoEquipamentos";
 
 export const atividadeIniciaLocacao = (atividade) => {
   if (atividade.iniciaLocacao !== undefined) return atividade.iniciaLocacao === true;
@@ -360,15 +365,104 @@ export const calcularPeriodosLocacaoIndividuais = ({
     );
   };
 
+  const ajustesConfiguracao = obterAjustesConfiguracaoEquipamentos().sort(
+    (a, b) =>
+      String(a.data || "").localeCompare(String(b.data || "")) ||
+      String(a.criadoEm || "").localeCompare(String(b.criadoEm || ""))
+  );
+  let indiceAjuste = 0;
+  const aplicarAjustesAte = (dataLimite, incluirDataLimite = true) => {
+    while (
+      indiceAjuste < ajustesConfiguracao.length &&
+      (incluirDataLimite
+        ? String(ajustesConfiguracao[indiceAjuste].data || "") <= dataLimite
+        : String(ajustesConfiguracao[indiceAjuste].data || "") < dataLimite)
+    ) {
+      const ajuste = ajustesConfiguracao[indiceAjuste];
+      const indiceUnidade = unidadesAbertas.findIndex(
+        (unidade) =>
+          (!ajuste.obraId ||
+            String(ajuste.obraId) === String(unidade.obraId || "")) &&
+          ajustePertenceUnidade(ajuste, unidade)
+      );
+      if (indiceUnidade >= 0) {
+        const unidade = unidadesAbertas[indiceUnidade];
+        const tamanhoAnterior = unidade.tamanho;
+        const ancoragemAnterior = unidade.ancoragem;
+        const usavaContrapeso = unidade.usaContrapeso === true;
+        const unidadeAjustada = aplicarAjusteConfiguracaoNaUnidade(
+          unidade,
+          ajuste
+        );
+        Object.assign(unidade, unidadeAjustada);
+        unidade.registroBase.unidade = { ...unidade };
+        unidade.registroBase.historico.push({
+          atividadeId: null,
+          ajusteConfiguracaoId: ajuste.id,
+          origem: "CONFERENCIA_CADASTRAL",
+          data: ajuste.data,
+          tamanhoAnterior,
+          tamanhoNovo: unidade.tamanho,
+          ancoragemAnterior,
+          ancoragemNova: unidade.ancoragem,
+          usaContrapesoAnterior: usavaContrapeso,
+          usaContrapesoNovo: unidade.usaContrapeso,
+        });
+
+        if (
+          ajuste.usaContrapeso === true &&
+          !kitsAbertos.has(unidade.idUnidade)
+        ) {
+          const atividadeAjuste = {
+            ...unidade.registroBase.atividadeInicio,
+            id: `ajuste:${ajuste.id}`,
+            dataLiberacao: ajuste.data,
+          };
+          const registroKit = abrirRegistro({
+            atividade: atividadeAjuste,
+            unidade,
+            tipoMovimentoLocacao: "contrapeso",
+            idRegistro: `${unidade.idUnidade}:contrapeso:ajuste:${ajuste.id}`,
+            vinculoBase: unidade.idUnidade,
+          });
+          if (registroKit) kitsAbertos.set(unidade.idUnidade, registroKit);
+        }
+        if (
+          ajuste.usaContrapeso === false &&
+          kitsAbertos.has(unidade.idUnidade)
+        ) {
+          fecharRegistro(kitsAbertos.get(unidade.idUnidade), {
+            ...unidade.registroBase.atividadeInicio,
+            id: `ajuste:${ajuste.id}`,
+            dataLiberacao: ajuste.data,
+          });
+          kitsAbertos.delete(unidade.idUnidade);
+        }
+      }
+      indiceAjuste += 1;
+    }
+  };
+
   atividadesOrdenadas.forEach((atividade) => {
+    const dataAtividade = String(atividade.dataLiberacao || "");
+    aplicarAjustesAte(dataAtividade, false);
+    try {
     const itens = Array.isArray(atividade.itensEquipamentos)
       ? atividade.itensEquipamentos
       : [];
     const iniciaLocacao = atividadeIniciaLocacao(atividade);
     const encerraLocacao = atividadeEncerraLocacao(atividade);
+    const entradaPossuiAjusteCadastral = iniciaLocacao &&
+      criarUnidadesDaEntrada(atividade).some((unidade) =>
+        ajustesConfiguracao.some((ajuste) =>
+          ajustePertenceUnidade(ajuste, unidade)
+        )
+      );
     const entradaIndividual =
       iniciaLocacao &&
-      (itens.length > 0 || origensReferenciadas.has(String(atividade.id)));
+      (itens.length > 0 ||
+        origensReferenciadas.has(String(atividade.id)) ||
+        entradaPossuiAjusteCadastral);
 
     if (entradaIndividual) {
       atividadesIndividualizadas.add(String(atividade.id));
@@ -469,7 +563,12 @@ export const calcularPeriodosLocacaoIndividuais = ({
         unidadesAbertas.splice(indice, 1);
       }
     });
+    } finally {
+      aplicarAjustesAte(dataAtividade);
+    }
   });
+
+  aplicarAjustesAte("9999-12-31");
 
   const periodos = registros
     .map((registro) => {

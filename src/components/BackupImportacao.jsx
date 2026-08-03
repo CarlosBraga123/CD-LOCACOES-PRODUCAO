@@ -23,6 +23,8 @@ export default function BackupImportacao() {
       patrimonioEquipamentos: JSON.parse(localStorage.getItem("patrimonioEquipamentos") || "[]"),
       equipamentosPatrimonio: JSON.parse(localStorage.getItem("equipamentosPatrimonio") || "[]"),
       substituicoesEquipamentos: JSON.parse(localStorage.getItem("substituicoesEquipamentos") || "[]"),
+      ajustesConfiguracaoEquipamentos: JSON.parse(localStorage.getItem("ajustesConfiguracaoEquipamentos") || "[]"),
+      controleKitContrapeso: JSON.parse(localStorage.getItem("controleKitContrapeso") || "{\"quantidadeTotal\":0,\"historico\":[]}"),
       construtoras: JSON.parse(localStorage.getItem("construtoras") || "[]"),
       obras: JSON.parse(localStorage.getItem("obras") || "[]"),
       pecasBalancinho: JSON.parse(localStorage.getItem("pecasBalancinho") || "{}"),
@@ -56,7 +58,7 @@ export default function BackupImportacao() {
   };
 
   const validarBackup = (conteudo) => {
-    const chavesArray = ["atividades", "patrimonioEquipamentos", "equipamentosPatrimonio", "substituicoesEquipamentos", "construtoras", "obras", "tarefas", "usuarios"];
+    const chavesArray = ["atividades", "patrimonioEquipamentos", "equipamentosPatrimonio", "substituicoesEquipamentos", "ajustesConfiguracaoEquipamentos", "construtoras", "obras", "tarefas", "usuarios"];
 
     for (const chave of chavesArray) {
       if (conteudo[chave] !== undefined && !Array.isArray(conteudo[chave])) {
@@ -65,6 +67,16 @@ export default function BackupImportacao() {
     }
 
     const chavesMateriais = ["pecasBalancinho", "pecasAncoragem"];
+
+    if (
+      conteudo.controleKitContrapeso !== undefined &&
+      (typeof conteudo.controleKitContrapeso !== "object" ||
+        conteudo.controleKitContrapeso === null ||
+        Array.isArray(conteudo.controleKitContrapeso) ||
+        !Array.isArray(conteudo.controleKitContrapeso.historico || []))
+    ) {
+      throw new Error('O campo "controleKitContrapeso" deve ser uma estrutura de estoque válida.');
+    }
 
     for (const chave of chavesMateriais) {
       if (
@@ -106,6 +118,8 @@ export default function BackupImportacao() {
         if (conteudo.patrimonioEquipamentos !== undefined) localStorage.setItem("patrimonioEquipamentos", JSON.stringify(conteudo.patrimonioEquipamentos));
         if (conteudo.equipamentosPatrimonio !== undefined) localStorage.setItem("equipamentosPatrimonio", JSON.stringify(conteudo.equipamentosPatrimonio));
         if (conteudo.substituicoesEquipamentos !== undefined) localStorage.setItem("substituicoesEquipamentos", JSON.stringify(conteudo.substituicoesEquipamentos));
+        if (conteudo.ajustesConfiguracaoEquipamentos !== undefined) localStorage.setItem("ajustesConfiguracaoEquipamentos", JSON.stringify(conteudo.ajustesConfiguracaoEquipamentos));
+        if (conteudo.controleKitContrapeso !== undefined) localStorage.setItem("controleKitContrapeso", JSON.stringify(conteudo.controleKitContrapeso));
         if (conteudo.construtoras) localStorage.setItem("construtoras", JSON.stringify(conteudo.construtoras));
         if (conteudo.obras) localStorage.setItem("obras", JSON.stringify(conteudo.obras));
         if (conteudo.pecasBalancinho) localStorage.setItem("pecasBalancinho", JSON.stringify(conteudo.pecasBalancinho));
