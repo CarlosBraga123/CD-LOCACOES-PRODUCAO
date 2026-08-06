@@ -209,6 +209,9 @@ export const aplicarVinculoPatrimonialPosterior = ({
           numeroPatrimonio: itensEquipamentos[0]?.numeroPatrimonio || "",
           pendenteVinculoPatrimonio: resumo.pendentes > 0,
           statusVinculoPatrimonio: resumo.status,
+          ...(registro.saidaPatrimonialProvisoria !== undefined
+            ? { saidaPatrimonialProvisoria: resumo.pendentes > 0 }
+            : {}),
           dataVinculoPatrimonio: data,
           usuarioVinculoPatrimonio: usuario,
         }

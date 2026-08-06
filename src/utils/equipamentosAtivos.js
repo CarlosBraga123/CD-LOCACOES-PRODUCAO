@@ -8,6 +8,7 @@ import { compararTextoPtBr } from "./ordenacao";
 import {
   criarUnidadesDaEntrada,
   localizarIndiceUnidade,
+  unidadeCompativelComAtividade,
 } from "./unidadesEquipamentos";
 import {
   aplicarPatrimoniosAdministrativos,
@@ -56,7 +57,8 @@ export const calcularEquipamentosAtivosDaObra = (obra, atividades = []) => {
     .map((atividade) => {
       if (
         atividade.pendenteVinculoPatrimonio !== true ||
-        atividadeIniciaLocacao(atividade)
+        atividadeIniciaLocacao(atividade) ||
+        atividadeEncerraLocacao(atividade)
       ) {
         return atividade;
       }
@@ -168,6 +170,7 @@ export const obterUnidadesEquipamentosAtivos = (
         atividade.dataLiberacao &&
         (atividade.pendenteVinculoPatrimonio !== true ||
           atividadeIniciaLocacao(atividade) ||
+          atividadeEncerraLocacao(atividade) ||
           (atividade.itensEquipamentos || []).some(itemPossuiVinculoPatrimonial))
     )
     .sort((a, b) => {
@@ -193,12 +196,14 @@ export const obterUnidadesEquipamentosAtivos = (
       }
 
       if (itens.length > 0) {
+        let unidadesEncerradas = 0;
         itens.forEach((item) => {
           const indice = localizarIndiceUnidade(unidades, item);
           if (indice < 0) return;
 
           if (encerraLocacao) {
             unidades.splice(indice, 1);
+            unidadesEncerradas += 1;
             return;
           }
 
@@ -210,6 +215,22 @@ export const obterUnidadesEquipamentosAtivos = (
             );
           }
         });
+        if (
+          encerraLocacao &&
+          atividade.pendenteVinculoPatrimonio === true
+        ) {
+          let quantidadeRestante =
+            Math.max(1, Number(atividade.quantidade) || 1) - unidadesEncerradas;
+          for (
+            let indice = unidades.length - 1;
+            indice >= 0 && quantidadeRestante > 0;
+            indice -= 1
+          ) {
+            if (!unidadeCompativelComAtividade(unidades[indice], atividade)) continue;
+            unidades.splice(indice, 1);
+            quantidadeRestante -= 1;
+          }
+        }
         return;
       }
 
@@ -224,7 +245,7 @@ export const obterUnidadesEquipamentosAtivos = (
           indice >= 0 && quantidadeRestante > 0;
           indice -= 1
         ) {
-          if (unidades[indice].equipamento !== atividade.equipamento) continue;
+          if (!unidadeCompativelComAtividade(unidades[indice], atividade)) continue;
           unidades[indice] = aplicarDeslocamentoNaUnidade(
             unidades[indice],
             {
@@ -249,7 +270,7 @@ export const obterUnidadesEquipamentosAtivos = (
           indice >= 0 && quantidadeRestante > 0;
           indice -= 1
         ) {
-          if (unidades[indice].equipamento !== atividade.equipamento) continue;
+          if (!unidadeCompativelComAtividade(unidades[indice], atividade)) continue;
           unidades.splice(indice, 1);
           quantidadeRestante -= 1;
         }

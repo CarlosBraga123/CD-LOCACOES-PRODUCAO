@@ -55,12 +55,23 @@ export const criarUnidadesDaEntrada = (atividade) => {
 };
 
 export const localizarIndiceUnidade = (unidades, item) => {
-  const identidade = String(item?.idItemOrigem || "").trim();
-  if (identidade) {
+  const identidades = [item?.idItemOrigem, item?.idUnidade, item?.idEquipamento]
+    .map((valor) => String(valor || "").trim())
+    .filter(Boolean);
+  if (identidades.length > 0) {
     const indice = unidades.findIndex(
-      (unidade) =>
-        unidade.idUnidade === identidade ||
-        unidade.idItemOrigem === identidade
+      (unidade) => {
+        const identidadesUnidade = [
+          unidade.idUnidade,
+          unidade.idItemOrigem,
+          unidade.idEquipamento,
+        ]
+          .map((valor) => String(valor || "").trim())
+          .filter(Boolean);
+        return identidades.some((identidade) =>
+          identidadesUnidade.includes(identidade)
+        );
+      }
     );
     if (indice >= 0) return indice;
   }
@@ -75,4 +86,32 @@ export const localizarIndiceUnidade = (unidades, item) => {
   }
 
   return -1;
+};
+
+export const unidadeCompativelComAtividade = (unidade, atividade) => {
+  if (unidade?.equipamento !== atividade?.equipamento) return false;
+  if (atividade.equipamento === "Balancinho") {
+    return (
+      (unidade.tipoBalancinho || "Eletrico") ===
+      (atividade.tipoBalancinho || "Eletrico")
+    );
+  }
+  if (atividade.equipamento === "Mini Grua") {
+    return String(unidade.tipoMiniGrua || "") === String(atividade.tipoMiniGrua || "");
+  }
+  return true;
+};
+
+export const obterIdentidadeCanonicaUnidade = (unidade, fallback = "") => {
+  const candidatos = [
+    ["equipamento", unidade?.idEquipamento],
+    ["origem", unidade?.idItemOrigem],
+    ["unidade", unidade?.idUnidade],
+    ["item", unidade?.idItem],
+  ];
+  const encontrado = candidatos.find(([, valor]) =>
+    String(valor || "").trim()
+  );
+  if (encontrado) return `${encontrado[0]}:${String(encontrado[1]).trim()}`;
+  return `legado:${String(fallback || "sem-identidade").trim()}`;
 };

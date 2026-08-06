@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  calcularPeriodosLocacao,
-  calcularPeriodosLocacaoIndividuais,
+  calcularPeriodosFinanceirosLocacao,
 } from "../utils/locacaoFinanceira";
 import { atividadePertenceObra, normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
 
@@ -312,8 +311,8 @@ export default function RelatorioFinanceiro() {
         .slice(0, 10)
     : "";
   const diasNoMesLocacao = fimMesLocacao ? Number(fimMesLocacao.slice(8, 10)) : 0;
-  const resultadoLocacoesIndividuais = mesLocacao
-    ? calcularPeriodosLocacaoIndividuais({
+  const resultadoPeriodosLocacao = mesLocacao
+    ? calcularPeriodosFinanceirosLocacao({
         atividadesBase: atividadesBaseLocacao,
         inicioMes: inicioMesLocacao,
         fimMes: fimMesLocacao,
@@ -322,31 +321,8 @@ export default function RelatorioFinanceiro() {
         formatarEquipamento,
         obterValorMensalLocacao,
       })
-    : {
-        periodos: [],
-        atividadesIndividualizadas: new Set(),
-      };
-  const atividadesLegadasLocacao = atividadesBaseLocacao.filter(
-    (atividade) =>
-      !resultadoLocacoesIndividuais.atividadesIndividualizadas.has(
-        String(atividade.id)
-      )
-  );
-  const periodosLocacaoLegados = mesLocacao
-    ? calcularPeriodosLocacao({
-        atividadesBase: atividadesLegadasLocacao,
-        inicioMes: inicioMesLocacao,
-        fimMes: fimMesLocacao,
-        diasNoMes: diasNoMesLocacao,
-        obras,
-        formatarEquipamento,
-        obterValorMensalLocacao,
-      })
-    : [];
-  const periodosLocacaoFinanceiro = [
-    ...resultadoLocacoesIndividuais.periodos,
-    ...periodosLocacaoLegados,
-  ];
+    : { periodos: [] };
+  const periodosLocacaoFinanceiro = resultadoPeriodosLocacao.periodos;
   const totalLocacoes = periodosLocacaoFinanceiro.reduce((acc, periodo) => {
     return acc + Number(periodo.valorProporcional || 0);
   }, 0);

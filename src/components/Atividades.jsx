@@ -1233,6 +1233,14 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     if (!validarContrapeso(formCompatibilidade)) return;
 
     const regrasOperacionais = obterRegraOperacionalSegura(form.equipamento, form.servico);
+    if (
+      regrasOperacionais.encerraLocacao === true &&
+      vinculoPosteriorAtivo &&
+      quantidadeFinal > unidadesAtivasDisponiveis.length
+    ) {
+      alert("A quantidade informada é maior que o saldo disponível nesta obra.");
+      return;
+    }
     const obraSelecionada = obterObraDaAtividade(formCompatibilidade, obras);
     const alteracaoContrapeso = form.equipamento === "Balancinho" && servicoPermiteAlteracaoContrapeso(form.servico)
       ? normalizarAlteracaoContrapeso(form)
@@ -1300,6 +1308,8 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
         resumoVinculo.pendentes > 0,
       statusVinculoPatrimonio:
         form.equipamento ? resumoVinculo.status : "NAO_APLICAVEL",
+      saidaPatrimonialProvisoria:
+        regrasOperacionais.encerraLocacao === true && resumoVinculo.pendentes > 0,
     };
 
     const novas = form.id
@@ -1443,12 +1453,26 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     return obterUnidadesEquipamentosAtivos(
       obraSelecionadaNoFormulario,
       atividadesParaCalculo
-    ).filter((unidade) => unidade.equipamento === form.equipamento);
+    ).filter((unidade) => {
+      if (unidade.equipamento !== form.equipamento) return false;
+      if (form.equipamento === "Balancinho") {
+        return (
+          (unidade.tipoBalancinho || "Eletrico") ===
+          (form.tipoBalancinho || "Eletrico")
+        );
+      }
+      if (form.equipamento === "Mini Grua") {
+        return String(unidade.tipoMiniGrua || "") === String(form.tipoMiniGrua || "");
+      }
+      return true;
+    });
   }, [
     atividades,
     form.equipamento,
     form.id,
     form.servico,
+    form.tipoBalancinho,
+    form.tipoMiniGrua,
     obraSelecionadaNoFormulario,
   ]);
   const alteracaoContrapesoFormulario = normalizarAlteracaoContrapeso(form);

@@ -3,15 +3,70 @@ import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import {
-  calcularPeriodosLocacao,
-  calcularPeriodosLocacaoIndividuais,
+  calcularPeriodosFinanceirosLocacao,
+  auditarPeriodosFinanceirosObra,
+  auditarLinhaLocacao,
   obterMovimentosLocacao,
 } from "../utils/locacaoFinanceira";
 import { normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
 import { atividadeTemPatrimonioPendente } from "../utils/pendenciasOperacionais";
+import { obterIdentidadeCanonicaUnidade } from "../utils/unidadesEquipamentos";
+import { obterUnidadesEquipamentosAtivos } from "../utils/equipamentosAtivos";
 
 const normalizarCategoriaLocacao = (valor) =>
   normalizarTexto(valor).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const formatarOrigemFinanceiraVisual = (origem) => {
+  const valorOriginal = String(origem || "").trim();
+  const valorNormalizado = normalizarCategoriaLocacao(valorOriginal);
+
+  if (!valorNormalizado || valorNormalizado === "sem valor") return "Sem valor";
+  if (valorNormalizado === "congelado") return "Congelado";
+  if (["obra", "estimado obra", "tabela da obra"].includes(valorNormalizado)) {
+    return "Tabela da Obra";
+  }
+  if (
+    ["construtora", "estimado construtora", "tabela da construtora"].includes(
+      valorNormalizado
+    )
+  ) {
+    return "Tabela da Construtora";
+  }
+  if (
+    [
+      "padrao",
+      "estimado padrao",
+      "tabela padrao",
+      "tabela comercial",
+    ].includes(valorNormalizado)
+  ) {
+    return "Tabela Comercial";
+  }
+
+  return valorOriginal;
+};
+
+const classificarOrigemFinanceiraLinha = (periodos = []) => {
+  const origens = new Set(
+    periodos.map((periodo) =>
+      formatarOrigemFinanceiraVisual(periodo.origemValor)
+    )
+  );
+
+  if (origens.size === 0) return "Sem valor";
+  if (origens.size === 1) return Array.from(origens)[0];
+  return "Múltiplas origens";
+};
+
+const formatarTituloUnidadeNaCompetencia = (periodo) => {
+  const titulo = String(periodo?.equipamento || "Unidade não identificada");
+  if (periodo?.saidaNoPeriodo) return titulo;
+
+  return titulo.replace(
+    /\s+—\s+(?:Saída|Removid[oa]|Recolhid[oa])(?:\s+.*)?$/i,
+    ""
+  );
+};
 
 const categoriasResumoLocacao = [
   {
@@ -262,11 +317,7 @@ export default function RelatorioLocacao() {
       };
     };
 
-    const {
-      periodos: periodosIndividuais,
-      registrosZerados: registrosIndividuaisZerados,
-      atividadesIndividualizadas,
-    } = calcularPeriodosLocacaoIndividuais({
+    const resultadoPeriodosFinanceiros = calcularPeriodosFinanceirosLocacao({
       atividadesBase: atividades,
       inicioMes,
       fimMes,
@@ -275,11 +326,27 @@ export default function RelatorioLocacao() {
       formatarEquipamento,
       obterValorMensalLocacao,
     });
+    if (import.meta.env.DEV) {
+      auditarPeriodosFinanceirosObra({
+        periodos: resultadoPeriodosFinanceiros.periodos,
+        atividadesBase: atividades,
+        atividadesIndividualizadas:
+          resultadoPeriodosFinanceiros.atividadesIndividualizadas,
+        construtora: "JOSE ROCHA",
+        obra: "Rio Branco",
+        mes: Number(mesSelecionado.slice(5, 7)),
+        ano: Number(mesSelecionado.slice(0, 4)),
+      });
+    }
+    const {
+      periodosIndividuais,
+      registrosZerados: registrosIndividuaisZerados,
+      atividadesIndividualizadas,
+    } = resultadoPeriodosFinanceiros;
     const atividadesLegadas = atividades.filter(
       (atividade) =>
         !atividadesIndividualizadas.has(String(atividade.id))
     );
-
     // Regras operacionais atuais, com fallback para registros antigos.
     const atividadeIniciaLocacao = (atividade) => {
       if (atividade.iniciaLocacao !== undefined) return atividade.iniciaLocacao === true;
@@ -291,7 +358,7 @@ export default function RelatorioLocacao() {
       return atividade.servico === "Remoção";
     };
 
-    // Saldos permanecem pelo calculo historico; o proporcional e substituido abaixo.
+    // A apresentação reconstrói apenas saldos; valores vêm dos períodos oficiais.
     atividadesLegadas
       .filter((atividade) => atividade.dataLiberacao)
       .sort((a, b) => new Date(a.dataLiberacao) - new Date(b.dataLiberacao))
@@ -305,53 +372,22 @@ export default function RelatorioLocacao() {
 
         const linha = obterLinha(atividade);
         const movimento = entrada ? quantidade : -quantidade;
-        const valorMensalLocacao = obterValorMensalLocacao(atividade);
-        const valorMensal = valorMensalLocacao.valor;
-        linha.origensValor.add(valorMensalLocacao.origem);
 
         if (atividade.dataLiberacao < inicioMes) {
           linha.saldoAnterior += movimento;
-          linha.valorProporcionalMes += entrada ? valorMensal : -valorMensal;
-          linha.valorMensalAtivo += entrada ? valorMensal : -valorMensal;
         }
 
         if (atividade.dataLiberacao >= inicioMes && atividade.dataLiberacao <= fimMes) {
-          const diaMovimento = Number(atividade.dataLiberacao.slice(8, 10));
-
           if (entrada) linha.entradasMes += quantidade;
-          if (entrada) {
-            const diasCobrados = diasNoMes - diaMovimento + 1;
-            linha.valorProporcionalMes += (valorMensal * diasCobrados) / diasNoMes;
-            linha.valorMensalAtivo += valorMensal;
-          }
-
-          if (saida) {
-            linha.saidasMes += quantidade;
-            if (linha.valorMensalAtivo > 0) {
-              const diasSemCobranca = diasNoMes - diaMovimento;
-              linha.valorProporcionalMes -= (valorMensal * diasSemCobranca) / diasNoMes;
-            } else {
-              linha.valorProporcionalMes += (valorMensal * diaMovimento) / diasNoMes;
-            }
-            linha.valorMensalAtivo -= valorMensal;
-          }
+          if (saida) linha.saidasMes += quantidade;
         }
 
         if (atividade.dataLiberacao <= fimMes) {
           linha.saldoFinal += movimento;
-          linha.valorMensal = linha.valorMensalAtivo;
         }
       });
 
-    const periodosLocacao = calcularPeriodosLocacao({
-      atividadesBase: atividadesLegadas,
-      inicioMes,
-      fimMes,
-      diasNoMes,
-      obras,
-      formatarEquipamento,
-      obterValorMensalLocacao,
-    });
+    const periodosLocacao = resultadoPeriodosFinanceiros.periodosLegados;
     periodosLocacao.forEach((periodo) => {
       const chaveLinha = [
         periodo.chaveObra,
@@ -468,8 +504,8 @@ export default function RelatorioLocacao() {
 
       return {
         ...linha,
-        valorMensal: Math.max(0, valorMensalPeriodos),
-        valorProporcionalMes: Math.max(0, valorProporcionalPeriodos),
+        valorMensal: valorMensalPeriodos,
+        valorProporcionalMes: valorProporcionalPeriodos,
         origemValor: Array.from(new Set(origensValorPeriodos)).join(" / ") || "Sem valor",
       };
     });
@@ -518,10 +554,311 @@ export default function RelatorioLocacao() {
       return acc;
     }, new Map());
 
+    const atividadesAteFim = atividades.filter(
+      (atividade) =>
+        atividade.dataLiberacao && atividade.dataLiberacao <= fimMes
+    );
+    const atividadesDoMes = atividades.filter(
+      (atividade) =>
+        atividade.dataLiberacao >= inicioMes &&
+        atividade.dataLiberacao <= fimMes
+    );
+    const ajustarQuantidadeDetalhe = (itens, quantidadeOficial, linha, tipo) =>
+      Array.from(
+        { length: Math.max(0, Number(quantidadeOficial) || 0) },
+        (_, indice) => itens[indice] || {
+          identidadeCanonica: `legado:${linha.chaveObra}:${linha.equipamento}:${tipo}:${indice}`,
+          equipamento: `${linha.equipamento} — Unidade não identificada`,
+          unidadeLegada: true,
+          ativaNoFim: tipo === "ativa",
+          entradaNoPeriodo: tipo === "entrada",
+          saidaNoPeriodo: tipo === "saida",
+          dataEntradaOriginal: tipo === "entrada" ? inicioMes : "",
+          dataSaidaEfetiva: tipo === "saida" ? fimMes : "",
+        }
+      );
+
+    const montarDetalhamentoLinha = (linha) => {
+      const obra = obras.find(
+        (item) =>
+          obterChaveObra({
+            obraId: item.id,
+            obra: item.nome,
+            construtora: item.construtora,
+          }) === linha.chaveObra
+      );
+      const periodosPorIdentidade = new Map();
+      linha.periodosLocacao.forEach((periodo, indice) => {
+        const identidade = obterIdentidadeCanonicaUnidade(
+          periodo,
+          `${periodo.atividadeInicioId || "sem-inicio"}:${periodo.idUnidade || indice}`
+        );
+        if (!periodosPorIdentidade.has(identidade)) {
+          periodosPorIdentidade.set(identidade, periodo);
+        }
+      });
+
+      const unidadesAtivas = obra
+        ? obterUnidadesEquipamentosAtivos(obra, atividadesAteFim)
+        : [];
+      const candidatosAtivos = unidadesAtivas.flatMap((unidade) => {
+        const base = {
+          ...unidade,
+          equipamentoCategoria: formatarCategoriaGerencial(
+            formatarEquipamento({ ...unidade, usaContrapeso: false })
+          ),
+          tipoDetalhe: "base",
+        };
+        return unidade.equipamento === "Balancinho" && unidade.usaContrapeso
+          ? [
+              base,
+              {
+                ...unidade,
+                equipamentoCategoria: "Kit Contrapeso",
+                tipoDetalhe: "contrapeso",
+              },
+            ]
+          : [base];
+      });
+      const mapaAtivos = new Map();
+      candidatosAtivos
+        .filter((unidade) => unidade.equipamentoCategoria === linha.equipamento)
+        .forEach((unidade, indice) => {
+          const identidadeBase = obterIdentidadeCanonicaUnidade(
+            unidade,
+            `${linha.chaveObra}:ativa:${indice}`
+          );
+          const identidade = `${unidade.tipoDetalhe}:${identidadeBase}`;
+          if (mapaAtivos.has(identidade)) return;
+          const periodo = periodosPorIdentidade.get(identidadeBase) || {};
+          const patrimonio = unidade.numeroPatrimonio || "";
+          mapaAtivos.set(identidade, {
+            ...periodo,
+            ...unidade,
+            identidadeCanonica: identidade,
+            equipamento: patrimonio
+              ? `${linha.equipamento} — Patrimônio ${patrimonio}`
+              : `${linha.equipamento} — Unidade não identificada`,
+            ativaNoFim: true,
+            entradaNoPeriodo:
+              unidade.dataEntrada >= inicioMes && unidade.dataEntrada <= fimMes,
+            saidaNoPeriodo: false,
+            dataEntradaOriginal: unidade.dataEntrada || periodo.dataEntradaReal || "",
+          });
+        });
+
+      const montarMovimentos = (tipo) => {
+        const movimentos = [];
+        atividadesDoMes
+          .filter((atividade) => obterChaveObra(atividade) === linha.chaveObra)
+          .forEach((atividade) => {
+            obterMovimentosLocacao(atividade)
+              .filter((movimento) =>
+                formatarCategoriaGerencial(
+                  movimento.tipoMovimentoLocacao === "contrapeso"
+                    ? "Kit Contrapeso"
+                    : formatarEquipamento(movimento)
+                ) === linha.equipamento &&
+                (tipo === "entrada"
+                  ? movimento.iniciaLocacao === true
+                  : movimento.encerraLocacao === true)
+              )
+              .forEach((movimento) => {
+                const quantidade = Math.max(1, Number(movimento.quantidade) || 1);
+                const itens = Array.isArray(atividade.itensEquipamentos)
+                  ? atividade.itensEquipamentos
+                  : [];
+                const campoAtividadePeriodo =
+                  tipo === "entrada" ? "atividadeInicioId" : "atividadeFimId";
+                const periodosDaAtividade = linha.periodosLocacao.filter(
+                  (registro) =>
+                    String(registro[campoAtividadePeriodo] || "") ===
+                    String(atividade.id)
+                );
+                Array.from({ length: quantidade }, (_, indice) => {
+                  const item = itens[indice] || {};
+                  const identidadeBase = obterIdentidadeCanonicaUnidade(
+                    item,
+                    `${atividade.id}:${movimento.tipoMovimentoLocacao || "base"}:${tipo}:${indice}`
+                  );
+                  const periodoIdentificado = periodosDaAtividade.find(
+                    (registro) =>
+                      item.idEquipamento &&
+                      String(registro.idEquipamento || "") ===
+                        String(item.idEquipamento)
+                  );
+                  const periodoPorPosicao =
+                    periodosDaAtividade.length === quantidade
+                      ? periodosDaAtividade[indice]
+                      : null;
+                  const periodoAgregado =
+                    periodosDaAtividade.length === 1
+                      ? {
+                          ...periodosDaAtividade[0],
+                          valorMensal:
+                            Number(periodosDaAtividade[0].valorMensal || 0) /
+                            quantidade,
+                          valorProporcional:
+                            Number(periodosDaAtividade[0].valorProporcional || 0) /
+                            quantidade,
+                        }
+                      : null;
+                  const periodo =
+                    periodoIdentificado || periodoPorPosicao || periodoAgregado || {};
+                  const patrimonio = item.numeroPatrimonio || periodo.numeroPatrimonio || "";
+                  movimentos.push({
+                    ...periodo,
+                    ...item,
+                    identidadeCanonica: `${tipo}:${atividade.id}:${identidadeBase}:${indice}`,
+                    equipamento: patrimonio
+                      ? `${linha.equipamento} — Patrimônio ${patrimonio}`
+                      : `${linha.equipamento} — Unidade não identificada`,
+                    ativaNoFim: false,
+                    entradaNoPeriodo: tipo === "entrada",
+                    saidaNoPeriodo: tipo === "saida",
+                    dataEntradaOriginal:
+                      tipo === "entrada" ? atividade.dataLiberacao : periodo.dataEntradaReal || "",
+                    dataSaidaEfetiva:
+                      tipo === "saida" ? atividade.dataLiberacao : "",
+                    saidaPatrimonialPendente:
+                      tipo === "saida" &&
+                      atividade.pendenteVinculoPatrimonio === true &&
+                      !patrimonio,
+                  });
+                });
+              });
+          });
+        return movimentos;
+      };
+
+      return {
+        ativos: ajustarQuantidadeDetalhe(
+          Array.from(mapaAtivos.values()),
+          linha.saldoFinal,
+          linha,
+          "ativa"
+        ),
+        entradas: ajustarQuantidadeDetalhe(
+          montarMovimentos("entrada"),
+          linha.entradasMes,
+          linha,
+          "entrada"
+        ),
+        saidas: ajustarQuantidadeDetalhe(
+          montarMovimentos("saida"),
+          linha.saidasMes,
+          linha,
+          "saida"
+        ),
+      };
+    };
+
+    const atividadesPorId = new Map(
+      atividades.map((atividade) => [String(atividade.id), atividade])
+    );
+    const normalizarPeriodoFinanceiroDetalhe = (periodo, indice) => {
+      const atividadeInicio = atividadesPorId.get(
+        String(periodo.atividadeInicioId || "")
+      );
+      const atividadeFim = atividadesPorId.get(
+        String(periodo.atividadeFimId || "")
+      );
+      const dataEntradaReal =
+        periodo.dataEntradaReal || atividadeInicio?.dataLiberacao || periodo.dataInicio || "";
+      const dataSaidaReal =
+        periodo.dataSaidaReal || atividadeFim?.dataLiberacao || "";
+      const quantidadeDetalhe = Math.max(
+        1,
+        Number(periodo.quantidadeFinanceira ?? periodo.quantidade) || 1
+      );
+      const entradaNoPeriodo =
+        dataEntradaReal >= inicioMes && dataEntradaReal <= fimMes;
+      const saidaNoPeriodo =
+        Boolean(dataSaidaReal) &&
+        dataSaidaReal >= inicioMes && dataSaidaReal <= fimMes;
+      const ativaNoFim =
+        dataEntradaReal <= fimMes &&
+        (!dataSaidaReal || dataSaidaReal > fimMes);
+      const identidadeCanonica = obterIdentidadeCanonicaUnidade(
+        periodo,
+        `${periodo.atividadeInicioId || "sem-inicio"}:${periodo.atividadeFimId || "aberto"}:${indice}`
+      );
+      const patrimonio = periodo.numeroPatrimonio || "";
+
+      return {
+        ...periodo,
+        identidadeCanonica: `financeiro:${identidadeCanonica}:${indice}`,
+        equipamento: patrimonio
+          ? `${periodo.equipamentoCategoria || periodo.equipamento} — Patrimônio ${patrimonio}`
+          : periodo.equipamento || "Unidade não identificada",
+        quantidadeDetalhe,
+        valorMensal: Number(periodo.valorMensal || 0),
+        valorProporcional: Number(periodo.valorProporcional || 0),
+        diasLocados: Number(periodo.diasLocados || 0),
+        dataEntradaOriginal: dataEntradaReal,
+        dataSaidaEfetiva: dataSaidaReal,
+        entradaNoPeriodo,
+        saidaNoPeriodo,
+        ativaNoFim,
+      };
+    };
+    const montarDetalhamentoFinanceiroOficial = (linha) => {
+      const periodosFinanceiros = linha.periodosLocacao.map((periodo) => ({
+        ...periodo,
+        identidadeCanonica: periodo.idPeriodo,
+        quantidadeDetalhe: periodo.quantidade,
+        dataEntradaOriginal: periodo.dataEntrada,
+        dataSaidaEfetiva: periodo.dataSaida,
+        entradaNoPeriodo:
+          periodo.dataEntrada >= inicioMes && periodo.dataEntrada <= fimMes,
+        saidaNoPeriodo:
+          Boolean(periodo.dataSaida) &&
+          periodo.dataSaida >= inicioMes &&
+          periodo.dataSaida <= fimMes,
+        ativaNoFim:
+          periodo.dataEntrada <= fimMes &&
+          (!periodo.dataSaida || periodo.dataSaida > fimMes),
+      }));
+      const saidas = periodosFinanceiros.filter((periodo) => periodo.saidaNoPeriodo);
+      const ativos = periodosFinanceiros.filter(
+        (periodo) => !periodo.saidaNoPeriodo && periodo.ativaNoFim
+      );
+      const entradas = periodosFinanceiros.filter(
+        (periodo) =>
+          !periodo.saidaNoPeriodo &&
+          !periodo.ativaNoFim &&
+          periodo.entradaNoPeriodo
+      );
+      const auditoria = auditarLinhaLocacao({
+        ...linha,
+        periodosFinanceiros,
+      });
+      if (import.meta.env.DEV && !auditoria.valido) {
+        console.error("Auditoria financeira da locação", {
+          construtora: linha.construtora,
+          obra: linha.obra,
+          categoria: linha.equipamento,
+          mes: mesSelecionado,
+          saldoAnterior: linha.saldoAnterior,
+          entradas: linha.entradasMes,
+          saidas: linha.saidasMes,
+          saldoFinal: linha.saldoFinal,
+          valorLinha: linha.valorProporcionalMes,
+          ...auditoria,
+        });
+      }
+
+      return { ativos, entradas, saidas, periodosFinanceiros };
+    };
+
     return Array.from(mapaGerencial.values()).map((linha) => ({
       ...linha,
       origemValor:
         Array.from(linha.origensValor).join(" / ") || "Sem valor",
+      origemValorExibicao: classificarOrigemFinanceiraLinha(
+        linha.periodosLocacao
+      ),
+      detalhamentoUnidades: montarDetalhamentoFinanceiroOficial(linha),
     })).sort((a, b) => {
       const construtora = a.construtora.localeCompare(b.construtora);
       if (construtora !== 0) return construtora;
@@ -754,8 +1091,79 @@ export default function RelatorioLocacao() {
 
   const renderLinha = (linha, index, prefixo = "linha") => {
     const chave = obterChaveExpansao(linha, index, prefixo);
-    const temPeriodos = Array.isArray(linha.periodosLocacao) && linha.periodosLocacao.length > 0;
+    const detalhes = linha.detalhamentoUnidades || {};
+    const detalhesAtivos = Array.isArray(detalhes.ativos) ? detalhes.ativos : [];
+    const detalhesSaidas = Array.isArray(detalhes.saidas) ? detalhes.saidas : [];
+    const detalhesEntradas = Array.isArray(detalhes.entradas) ? detalhes.entradas : [];
+    const contarQuantidadeDetalhe = (itens) =>
+      itens.reduce(
+        (total, item) => total + Math.max(1, Number(item.quantidadeDetalhe) || 1),
+        0
+      );
+    const quantidadeAtivosDetalhe = contarQuantidadeDetalhe(detalhesAtivos);
+    const quantidadeSaidasDetalhe = contarQuantidadeDetalhe(detalhesSaidas);
+    const temPeriodos =
+      detalhesAtivos.length + detalhesSaidas.length + detalhesEntradas.length > 0;
     const expandida = !!linhasExpandidas[chave];
+
+    const renderCardUnidade = (periodo) => (
+      <div
+        key={`${chave}-${periodo.identidadeCanonica}`}
+        className="rounded border bg-white p-3 text-xs text-gray-700 shadow-sm"
+      >
+        <div className="mb-2 flex flex-wrap items-center gap-2 font-semibold text-gray-900">
+          <span>{formatarTituloUnidadeNaCompetencia(periodo)}</span>
+          {periodo.saidaNoPeriodo && periodo.saidaPatrimonialPendente && (
+            <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800">
+              Patrimônio pendente
+            </span>
+          )}
+          {periodo.entradaNoPeriodo && (
+            <span className="rounded bg-blue-100 px-2 py-0.5 text-[10px] text-blue-800">
+              Entrada no período
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {periodo.quantidadeDetalhe > 1 && (
+            <>
+              <span>Quantidade:</span>
+              <strong>{periodo.quantidadeDetalhe}</strong>
+            </>
+          )}
+          <span>Entrada:</span>
+          <strong>{formatarData(periodo.dataEntradaOriginal || periodo.dataInicio)}</strong>
+          <span>{periodo.saidaNoPeriodo ? "Removida em:" : "Posição até:"}</span>
+          <strong>
+            {formatarData(
+              periodo.saidaNoPeriodo
+                ? periodo.dataSaidaEfetiva || periodo.dataFim
+                : periodo.dataFim
+            )}
+          </strong>
+          <span>Dias no período:</span>
+          <strong>{periodo.diasLocados}</strong>
+          <span>Valor mensal:</span>
+          <strong>{formatarMoeda(periodo.valorMensal)}</strong>
+          <span>Valor proporcional:</span>
+          <strong>{formatarMoeda(periodo.valorProporcional)}</strong>
+          <span>Origem:</span>
+          <strong>{formatarOrigemFinanceiraVisual(periodo.origemValor)}</strong>
+          {periodo.tipoBalancinho && (
+            <>
+              <span>Tipo balancinho:</span>
+              <strong>{periodo.tipoBalancinho}</strong>
+            </>
+          )}
+          {periodo.tipoMiniGrua && (
+            <>
+              <span>Tipo mini grua:</span>
+              <strong>{periodo.tipoMiniGrua}</strong>
+            </>
+          )}
+        </div>
+      </div>
+    );
 
     return (
       <Fragment key={chave}>
@@ -790,57 +1198,38 @@ export default function RelatorioLocacao() {
           <td className="px-4 py-2 font-semibold">{linha.saldoFinal}</td>
           <td className="px-4 py-2">{formatarMoeda(linha.valorMensal)}</td>
           <td className="px-4 py-2 font-semibold">{formatarMoeda(linha.valorProporcionalMes)}</td>
-          <td className="px-4 py-2 text-xs text-gray-500">{linha.origemValor}</td>
+          <td className="px-4 py-2 text-xs text-gray-500">
+            {linha.origemValorExibicao}
+          </td>
         </tr>
 
         {temPeriodos && expandida && (
           <tr className="border-t bg-gray-50">
             <td className="px-4 py-3" colSpan="10">
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-gray-700">Periodos da locacao</div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {linha.periodosLocacao.map((periodo, periodoIndex) => (
-                    <div
-                      key={`${chave}-periodo-${periodo.atividadeInicioId || "sem-inicio"}-${periodo.atividadeFimId || "aberto"}-${periodoIndex}`}
-                      className="rounded border bg-white p-3 text-xs text-gray-700 shadow-sm"
-                    >
-                      <div className="mb-2 font-semibold text-gray-900">
-                        {periodo.equipamento}
-                        {periodo.usaContrapeso && periodo.equipamento !== "Kit Contrapeso" && (
-                          <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-0.5 text-[10px] font-bold text-yellow-900">
-                            CONTRAPESO
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                        <span>Inicio:</span>
-                        <strong>{formatarData(periodo.dataInicio)}</strong>
-                        <span>Fim:</span>
-                        <strong>{formatarData(periodo.dataFim)}</strong>
-                        <span>Dias:</span>
-                        <strong>{periodo.diasLocados}</strong>
-                        <span>Valor mensal:</span>
-                        <strong>{formatarMoeda(periodo.valorMensal)}</strong>
-                        <span>Valor proporcional:</span>
-                        <strong>{formatarMoeda(periodo.valorProporcional)}</strong>
-                        <span>Origem:</span>
-                        <strong>{periodo.origemValor}</strong>
-                        {periodo.tipoBalancinho && (
-                          <>
-                            <span>Tipo balancinho:</span>
-                            <strong>{periodo.tipoBalancinho}</strong>
-                          </>
-                        )}
-                        {periodo.tipoMiniGrua && (
-                          <>
-                            <span>Tipo mini grua:</span>
-                            <strong>{periodo.tipoMiniGrua}</strong>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                  <span className="rounded bg-green-100 px-2 py-1 text-green-800">Unidades ativas: {quantidadeAtivosDetalhe}</span>
+                  <span className="rounded bg-red-100 px-2 py-1 text-red-800">Saídas no período: {quantidadeSaidasDetalhe}</span>
+                  <span className="rounded bg-blue-100 px-2 py-1 text-blue-800">Entradas no período: {linha.entradasMes}</span>
                 </div>
+                {detalhesAtivos.length > 0 && (
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-green-800">Unidades ativas — {quantidadeAtivosDetalhe}</h4>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{detalhesAtivos.map(renderCardUnidade)}</div>
+                  </section>
+                )}
+                {detalhesSaidas.length > 0 && (
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-red-800">Saídas no período — {quantidadeSaidasDetalhe}</h4>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{detalhesSaidas.map(renderCardUnidade)}</div>
+                  </section>
+                )}
+                {detalhesEntradas.length > 0 && (
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-blue-800">Entradas no período — {detalhesEntradas.length}</h4>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{detalhesEntradas.map(renderCardUnidade)}</div>
+                  </section>
+                )}
               </div>
             </td>
           </tr>
