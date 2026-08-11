@@ -20,15 +20,18 @@ import {
 } from "../utils/equipamentosPatrimonio";
 import {
   normalizarNumeroPatrimonio,
+  obterPatrimonioAtual,
   obterRegistrosPatrimonio,
 } from "../utils/patrimoniosEquipamentos";
 import {
   atividadeTemPatrimonioPendente,
   criarItensProvisoriosVinculo,
+  obterCandidatosVinculoPatrimonial,
   obterResumoVinculoPatrimonial,
   permiteVinculoPatrimonioPosterior,
 } from "../utils/pendenciasOperacionais";
 import VincularPatrimonioModal from "./VincularPatrimonioModal";
+import { ordenarPatrimoniosNumerados } from "../utils/ordenacao";
 
 const filtrosListaIniciais = {
   busca: "",
@@ -205,6 +208,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     dataAgendamento: "",
     dataLiberacao: "",
     equipeResponsavel: "",
+    numeroOsCampo: "",
     observacoes: "",
     valorUnitarioServico: "",
     adicionalServicoContrapeso: "",
@@ -1267,13 +1271,44 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       quantidade: quantidadeFinal,
       itensEquipamentos: usaItensIndividuais ? itensEquipamentos : form.itensEquipamentos,
     });
+    const encerramentoPatrimonial = regrasOperacionais.encerraLocacao === true;
+    const servicoComVinculoPorIdentidade = [
+      "Deslocamento",
+      "Manutenção",
+      "Remoção",
+      "Somente recolhimento",
+    ].includes(form.servico);
+    const pendenciaVinculavel =
+      resumoVinculo.pendentes > 0 &&
+      form.pendenteVinculoPatrimonio === true &&
+      (!servicoComVinculoPorIdentidade ||
+        obterCandidatosVinculoPatrimonial({
+          atividade: {
+            ...formCompatibilidade,
+            id: form.id || Date.now(),
+            obra: obraSelecionada?.nome || form.obra,
+            obraId: obraSelecionada?.id || form.obraId || "",
+          },
+          atividades,
+          obras,
+        }).length > 0);
+    const operacaoLegadaSemCandidato =
+      servicoComVinculoPorIdentidade &&
+      form.pendenteVinculoPatrimonio === true &&
+      !pendenciaVinculavel;
+    const manterItensIndividuais =
+      usaItensIndividuais && !operacaoLegadaSemCandidato;
     const novaAtividade = {
       ...form,
       obra: obraSelecionada?.nome || form.obra,
       obraId: obraSelecionada?.id || form.obraId || "",
       quantidade: quantidadeFinal,
-      ...(usaItensIndividuais ? { itensEquipamentos } : {}),
-      ...(usaItensIndividuais && form.equipamento === "Balancinho"
+      ...(manterItensIndividuais
+        ? { itensEquipamentos }
+        : operacaoLegadaSemCandidato
+          ? { itensEquipamentos: undefined }
+          : {}),
+      ...(manterItensIndividuais && form.equipamento === "Balancinho"
         ? {
             tamanho: itensEquipamentos[0]?.tamanho || "",
             tamanhoAnterior:
@@ -1290,7 +1325,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       usaContrapeso: usaContrapesoFinal,
       alteracaoContrapeso,
       quantidadeContrapeso,
-      numerosPatrimonio: usaItensIndividuais
+      numerosPatrimonio: manterItensIndividuais
         ? itensEquipamentos.map((item) => item.numeroPatrimonio || "")
         : normalizarNumerosPatrimonio(
             form.numerosPatrimonio || [],
@@ -1304,12 +1339,13 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       numeroOS,
       id: form.id || Date.now(),
       iniciado: form.iniciado || false,
-      pendenteVinculoPatrimonio:
-        resumoVinculo.pendentes > 0,
+      pendenteVinculoPatrimonio: pendenciaVinculavel,
       statusVinculoPatrimonio:
-        form.equipamento ? resumoVinculo.status : "NAO_APLICAVEL",
+        form.equipamento && !operacaoLegadaSemCandidato
+          ? resumoVinculo.status
+          : "NAO_APLICAVEL",
       saidaPatrimonialProvisoria:
-        regrasOperacionais.encerraLocacao === true && resumoVinculo.pendentes > 0,
+        encerramentoPatrimonial && pendenciaVinculavel,
     };
 
     const novas = form.id
@@ -1339,6 +1375,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       dataAgendamento: "",
       dataLiberacao: "",
       equipeResponsavel: "",
+      numeroOsCampo: "",
       observacoes: "",
       valorUnitarioServico: "",
       adicionalServicoContrapeso: "",
@@ -1578,7 +1615,10 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       });
     }
 
-    return unidades;
+    return ordenarPatrimoniosNumerados(
+      unidades,
+      (unidade) => unidade.numeroPatrimonio
+    );
   }, [
     form.ancoragem,
     form.construtora,
@@ -1597,6 +1637,8 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     const tipo = item.tipoBalancinho === "Manual" ? "Manual" : "Elétrico";
     return `Balancinho ${tipo}`;
   };
+
+  const registrosPatrimonioAtuais = obterRegistrosPatrimonio();
 
   const obterDataReferenciaFiltro = (atividade) =>
     atividade.dataLiberacao || atividade.dataAgendamento || "";
@@ -1679,7 +1721,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       if (filtrosLista.status === "liberadas" && !atividade.dataLiberacao) return false;
       if (
         filtrosLista.status === "patrimonio-pendente" &&
-        !atividadeTemPatrimonioPendente(atividade)
+        !atividadeTemPatrimonioPendente(atividade, { atividades, obras })
       ) return false;
 
       if (busca) {
@@ -2512,7 +2554,9 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           </div>
         )}
 
-        {!mostrarItensEquipamentosFormulario && !mostrarSelecaoUnidadesAtivas && (
+        {["Instalação", "Somente aluguel"].includes(form.servico) &&
+          !mostrarItensEquipamentosFormulario &&
+          !mostrarSelecaoUnidadesAtivas && (
         <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
           <h3 className="text-sm font-semibold">Números de patrimônio</h3>
           <div className="grid gap-3">
@@ -2621,6 +2665,15 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           value={form.equipeResponsavel ?? ""}
           onChange={(e) => setForm({ ...form, equipeResponsavel: e.target.value })}
           placeholder="Ex.: Israel, Matheus e LG"
+          className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
+        />
+
+        <label className="text-sm font-medium mt-2">Número da OS de campo</label>
+        <input
+          type="text"
+          value={form.numeroOsCampo ?? ""}
+          onChange={(e) => setForm({ ...form, numeroOsCampo: e.target.value })}
+          placeholder="Ex.: 0125"
           className="w-full rounded-xl border px-3 py-2 shadow-sm bg-white text-gray-800"
         />
 
@@ -2756,10 +2809,31 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
   ) : (
     atividadesFiltradas.map((item) => {
       const resumoVinculo = obterResumoVinculoPatrimonial(item);
+      const possuiItensEquipamentos =
+        Array.isArray(item.itensEquipamentos) && item.itensEquipamentos.length > 0;
+      const itensComPatrimonio = possuiItensEquipamentos
+        ? item.itensEquipamentos
+            .map((itemEquipamento) => ({
+              item: itemEquipamento,
+              patrimonio: obterPatrimonioAtual(
+                itemEquipamento,
+                registrosPatrimonioAtuais
+              ),
+            }))
+            .filter(({ patrimonio }) => patrimonio)
+        : [];
+      const patrimonioLegado =
+        itensComPatrimonio.length === 0 && !possuiItensEquipamentos
+          ? obterPatrimonioAtual(item, registrosPatrimonioAtuais) ||
+            normalizarNumeroPatrimonio(item.numerosPatrimonio?.[0])
+          : "";
       const tamanhoInfo =
         item.servico === "Deslocamento"
           ? `Tamanho: ${item.tamanhoAnterior || ""} ➔ ${item.tamanhoNovo || ""}`
           : `Tamanho: ${item.tamanho || ""}`;
+      const equipeResponsavel = String(item.equipeResponsavel ?? "").trim();
+      const ancoragem = String(item.ancoragem ?? "").trim();
+      const numeroOsCampo = String(item.numeroOsCampo ?? "").trim();
 
       return (
         <div
@@ -2790,12 +2864,12 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           }`}
         >
               <strong>{item.servico} - {formatarEquipamento(item)}</strong>
-              {atividadeTemPatrimonioPendente(item) && (
+              {atividadeTemPatrimonioPendente(item, { atividades, obras }) && (
                 <span className="inline-block w-fit rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">
                   ⚠ Patrimônio pendente • {resumoVinculo.vinculados} de {resumoVinculo.total} vinculados
                 </span>
               )}
-              {atividadeTemPatrimonioPendente(item) &&
+              {atividadeTemPatrimonioPendente(item, { atividades, obras }) &&
                 ["Remoção", "Somente recolhimento"].includes(item.servico) && (
                   <div className="rounded bg-amber-50 p-2 text-sm text-amber-900">
                     Serviço concluído e cobrado. Encerramento da unidade aguardando vínculo patrimonial.
@@ -2811,18 +2885,34 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
                   Contrapeso: {normalizarAlteracaoContrapeso(item) === "adicionar" ? "adicionar" : "remover"} {item.quantidadeContrapeso || 1}
                 </span>
               )}
-              <span className="text-xs font-semibold text-gray-500">
-  Status: {item.dataLiberacao
-    ? "CONCLUÍDO"
-    : item.iniciado
-    ? "EM ANDAMENTO"
-    : "AGENDADO"}
-</span>
+              <span className="flex flex-wrap text-xs font-semibold text-gray-500">
+                <span>
+                  Status: {item.dataLiberacao
+                    ? "CONCLUÍDO"
+                    : item.iniciado
+                      ? "EM ANDAMENTO"
+                      : "AGENDADO"}
+                </span>
+                {equipeResponsavel && (
+                  <span>&nbsp;• Equipe: {equipeResponsavel}</span>
+                )}
+              </span>
+
+              {itensComPatrimonio.length > 0
+                ? itensComPatrimonio.map(({ item: itemEquipamento, patrimonio }, indice) => (
+                    <span
+                      key={itemEquipamento.idItem || itemEquipamento.idItemOrigem || `${patrimonio}-${indice}`}
+                    >
+                      Patrimônio: {patrimonio}
+                    </span>
+                  ))
+                : patrimonioLegado && <span>Patrimônio: {patrimonioLegado}</span>}
 
               <span>{item.construtora} | {item.obra}</span>
               <span>{tamanhoInfo}</span>
               <span>Quantidade: {item.quantidade || 1}</span>
-              <span>Ancoragem: {item.ancoragem}</span>
+              {ancoragem && <span>Ancoragem: {ancoragem}</span>}
+              {numeroOsCampo && <span>OS de campo: {numeroOsCampo}</span>}
               {item.dataAgendamento && (
                 <span>
                   Agendamento: {item.dataAgendamento.split("-").reverse().join("/")}
@@ -2841,7 +2931,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
               )}
 
               <div className="flex gap-2 flex-wrap mt-2">
-                {atividadeTemPatrimonioPendente(item) && (
+                {atividadeTemPatrimonioPendente(item, { atividades, obras }) && (
                   <button
                     type="button"
                     onClick={() => setAtividadeParaVincular(item)}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { obterUnidadesEquipamentosAtivos } from "../utils/equipamentosAtivos";
 import { atividadeIniciaLocacao } from "../utils/locacaoFinanceira";
+import { ordenarPatrimoniosNumerados } from "../utils/ordenacao";
 import {
   obterEquipamentosPatrimonio,
   reconciliarSituacoesEquipamentos,
@@ -11,6 +12,8 @@ import {
   criarItensProvisoriosVinculo,
   equipamentoCompativelComAtividade,
   itemPossuiVinculoPatrimonial,
+  obterCandidatosVinculoPatrimonial,
+  obterAtividadesAnterioresAoVinculo,
   obterResumoVinculoPatrimonial,
 } from "../utils/pendenciasOperacionais";
 
@@ -21,17 +24,6 @@ const descricao = (item) =>
 
 const dataAtividade = (atividade) =>
   atividade.dataLiberacao || atividade.dataAgendamento || "";
-
-const obterAtividadesAnteriores = (atividades, atividade) => {
-  const dataReferencia = dataAtividade(atividade);
-  return atividades.filter((item) => {
-    if (String(item.id) === String(atividade.id)) return false;
-    const dataItem = dataAtividade(item);
-    if (!dataItem || !dataReferencia) return false;
-    if (dataItem !== dataReferencia) return dataItem < dataReferencia;
-    return String(item.id ?? "") < String(atividade.id ?? "");
-  });
-};
 
 const mestreParaUnidade = (mestre) => ({
   idUnidade: mestre.idItemOrigem || mestre.idEquipamento,
@@ -58,17 +50,10 @@ export default function VincularPatrimonioModal({
   const [idItem, setIdItem] = useState(pendentes[0]?.idItem || "");
   const [unidadeId, setUnidadeId] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const obra = obras.find(
-    (item) =>
-      String(item.id || "") === String(atividade.obraId || "") ||
-      (!atividade.obraId &&
-        item.nome === atividade.obra &&
-        item.construtora === atividade.construtora)
-  );
   const entrada = atividadeIniciaLocacao(atividade);
 
   const candidatos = useMemo(() => {
-    const anteriores = obterAtividadesAnteriores(atividades, atividade);
+    const anteriores = obterAtividadesAnterioresAoVinculo(atividades, atividade);
     const mestres = obterEquipamentosPatrimonio();
     const idsJaVinculados = new Set(
       itens.map((item) => String(item.idEquipamento || "")).filter(Boolean)
@@ -81,7 +66,7 @@ export default function VincularPatrimonioModal({
       const idsAtivos = new Set(
         ativosPorObra.map((item) => String(item.idEquipamento || "")).filter(Boolean)
       );
-      return mestres
+      const candidatosEntrada = mestres
         .filter(
           (item) =>
             item.ativo !== false &&
@@ -91,18 +76,19 @@ export default function VincularPatrimonioModal({
         )
         .map(mestreParaUnidade)
         .filter((item) => equipamentoCompativelComAtividade(item, atividade));
+      return ordenarPatrimoniosNumerados(candidatosEntrada);
     }
 
-    return obra
-      ? obterUnidadesEquipamentosAtivos(obra, anteriores, undefined, mestres).filter(
-          (item) =>
-            equipamentoCompativelComAtividade(item, atividade) &&
-            item.idEquipamento &&
-            item.numeroPatrimonio &&
-            !idsJaVinculados.has(String(item.idEquipamento))
-        )
-      : [];
-  }, [atividade, atividades, entrada, obra, obras]);
+    const candidatosVinculo = obterCandidatosVinculoPatrimonial({
+      atividade,
+      atividades,
+      obras,
+      equipamentosMestres: mestres,
+    }).filter(
+      (item) => !idsJaVinculados.has(String(item.idEquipamento || ""))
+    );
+    return ordenarPatrimoniosNumerados(candidatosVinculo);
+  }, [atividade, atividades, entrada, obras]);
 
   const confirmar = () => {
     if (salvando) return;
@@ -110,7 +96,10 @@ export default function VincularPatrimonioModal({
     const atividadeAtual = atividadesAtuais.find(
       (item) => String(item.id) === String(atividade.id)
     );
-    const anteriores = obterAtividadesAnteriores(atividadesAtuais, atividadeAtual || atividade);
+    const anteriores = obterAtividadesAnterioresAoVinculo(
+      atividadesAtuais,
+      atividadeAtual || atividade
+    );
     const mestres = obterEquipamentosPatrimonio();
     const idsJaVinculados = new Set(
       criarItensProvisoriosVinculo(atividadeAtual || atividade)
@@ -137,12 +126,14 @@ export default function VincularPatrimonioModal({
         )
         .map(mestreParaUnidade);
     } else {
-      candidatosAtuais = obra
-        ? obterUnidadesEquipamentosAtivos(obra, anteriores, undefined, mestres)
-            .filter(
-              (item) => !idsJaVinculados.has(String(item.idEquipamento || ""))
-            )
-        : [];
+      candidatosAtuais = obterCandidatosVinculoPatrimonial({
+        atividade: atividadeAtual || atividade,
+        atividades: atividadesAtuais,
+        obras,
+        equipamentosMestres: mestres,
+      }).filter(
+        (item) => !idsJaVinculados.has(String(item.idEquipamento || ""))
+      );
     }
     const unidade = candidatosAtuais.find(
       (item) =>

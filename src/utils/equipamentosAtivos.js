@@ -7,6 +7,8 @@ import {
 import { compararTextoPtBr } from "./ordenacao";
 import {
   criarUnidadesDaEntrada,
+  compararOrdemTemporalAtividades,
+  itemPossuiVinculoPatrimonial,
   localizarIndiceUnidade,
   unidadeCompativelComAtividade,
 } from "./unidadesEquipamentos";
@@ -19,7 +21,6 @@ import {
   obterEquipamentosPatrimonio,
   obterIdEquipamentoDoItem,
 } from "./equipamentosPatrimonio";
-import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
 import {
   ajustePertenceUnidade,
   aplicarAjusteConfiguracaoNaUnidade,
@@ -173,13 +174,7 @@ export const obterUnidadesEquipamentosAtivos = (
           atividadeEncerraLocacao(atividade) ||
           (atividade.itensEquipamentos || []).some(itemPossuiVinculoPatrimonial))
     )
-    .sort((a, b) => {
-      const porData = String(a.dataLiberacao).localeCompare(
-        String(b.dataLiberacao)
-      );
-      if (porData !== 0) return porData;
-      return String(a.id ?? "").localeCompare(String(b.id ?? ""));
-    })
+    .sort(compararOrdemTemporalAtividades)
     .forEach((atividade) => {
       const dataAtividade = String(atividade.dataLiberacao || "");
       aplicarAjustesAte(dataAtividade, false);

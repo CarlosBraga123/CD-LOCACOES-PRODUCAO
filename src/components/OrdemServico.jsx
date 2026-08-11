@@ -556,7 +556,7 @@ export default function OrdemServico({ atividade, obras, construtoras, onClose }
   );
   const [descricao, setDescricao] = useState(descricaoInicial);
   const [numeroOSCampo, setNumeroOSCampo] = useState(
-    String(atividade?.numeroOSCampo || "")
+    String(atividade?.numeroOsCampo ?? "").trim()
   );
   const [observacoesOS, setObservacoesOS] = useState(atividade?.observacoes || "");
 

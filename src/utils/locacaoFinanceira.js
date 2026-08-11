@@ -4,7 +4,7 @@ import {
   localizarIndiceUnidade,
   unidadeCompativelComAtividade,
 } from "./unidadesEquipamentos";
-import { itemPossuiVinculoPatrimonial } from "./pendenciasOperacionais";
+import { itemPossuiVinculoPatrimonial } from "./unidadesEquipamentos";
 import {
   ajustePertenceUnidade,
   aplicarAjusteConfiguracaoNaUnidade,

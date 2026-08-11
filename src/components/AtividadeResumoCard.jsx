@@ -1,3 +1,10 @@
+import {
+  normalizarNumeroPatrimonio,
+  obterPatrimonioAtual,
+  obterRegistrosPatrimonio,
+} from "../utils/patrimoniosEquipamentos";
+import { atividadeTemPatrimonioPendente } from "../utils/pendenciasOperacionais";
+
 const texto = (valor) => String(valor ?? "").trim();
 
 const formatarDataAtividade = (data) => {
@@ -44,6 +51,9 @@ const formatarTamanho = (valor) => {
   return /\bm$/i.test(tamanho) ? tamanho : `${tamanho} m`;
 };
 
+const formatarTamanhoDeslocamento = (valor) =>
+  texto(valor).replace(/\s*m$/i, "");
+
 const obterResumoTamanhos = (atividade) => {
   if (atividade?.equipamento !== "Balancinho") return "";
 
@@ -82,15 +92,17 @@ const obterResumoDeslocamentos = (atividade) => {
   const movimentos =
     itens.length > 0
       ? itens.map((item) => ({
-          anterior: formatarTamanho(item.tamanhoAnterior || item.tamanho),
-          novo: formatarTamanho(item.tamanhoNovo),
+          anterior: formatarTamanhoDeslocamento(
+            item.tamanhoAnterior || item.tamanho
+          ),
+          novo: formatarTamanhoDeslocamento(item.tamanhoNovo),
         }))
       : [
           {
-            anterior: formatarTamanho(
+            anterior: formatarTamanhoDeslocamento(
               atividade.tamanhoAnterior || atividade.tamanho
             ),
-            novo: formatarTamanho(atividade.tamanhoNovo),
+            novo: formatarTamanhoDeslocamento(atividade.tamanhoNovo),
           },
         ];
 
@@ -142,10 +154,29 @@ export default function AtividadeResumoCard({
   className = "",
   title,
   informacoesAdicionais,
+  contextoPatrimonial,
 }) {
   const quantidade = obterQuantidade(atividade);
-  const data =
-    atividade?.dataLiberacao || atividade?.dataAgendamento || "";
+  const dataLiberacao = atividade?.dataLiberacao || "";
+  const equipe = texto(atividade?.equipeResponsavel);
+  const ancoragem = texto(atividade?.ancoragem);
+  const numeroOsCampo = texto(atividade?.numeroOsCampo);
+  const status = dataLiberacao
+    ? "CONCLUÍDO"
+    : atividade?.iniciado
+      ? "EM ANDAMENTO"
+      : "AGENDADO";
+  const itens = obterItens(atividade);
+  const registrosPatrimonio = obterRegistrosPatrimonio();
+  const patrimonios = itens.length > 0
+    ? itens.map((item) => obterPatrimonioAtual(item, registrosPatrimonio))
+    : [
+        obterPatrimonioAtual(atividade, registrosPatrimonio),
+        ...(atividade?.numerosPatrimonio || []).map(normalizarNumeroPatrimonio),
+      ];
+  const patrimoniosVisiveis = [
+    ...new Set(patrimonios.map(texto).filter(Boolean)),
+  ];
   const deslocamentos = obterResumoDeslocamentos(atividade);
   const tamanhos =
     atividade?.servico === "Deslocamento"
@@ -165,9 +196,11 @@ export default function AtividadeResumoCard({
         <strong className="min-w-0 text-sm text-gray-900">
           {atividade?.servico || "Serviço"}
         </strong>
-        <span className="shrink-0 text-xs text-gray-500">
-          {formatarDataAtividade(data)}
-        </span>
+        {dataLiberacao && (
+          <span className="shrink-0 text-xs text-gray-500">
+            Liberação: {formatarDataAtividade(dataLiberacao)}
+          </span>
+        )}
       </div>
 
       <p className="mt-1 text-sm font-medium text-gray-700">
@@ -176,21 +209,37 @@ export default function AtividadeResumoCard({
       <p className="text-xs text-gray-600">
         {quantidade} {quantidade === 1 ? "equipamento" : "equipamentos"}
       </p>
+      <p className="flex flex-wrap text-xs font-semibold text-gray-500">
+        <span>Status: {status}</span>
+        {equipe && <span>&nbsp;• Equipe: {equipe}</span>}
+      </p>
+
+      {patrimoniosVisiveis.map((patrimonio) => (
+        <p key={patrimonio} className="text-xs text-gray-600">
+          Patrimônio: {patrimonio}
+        </p>
+      ))}
+      {atividadeTemPatrimonioPendente(atividade, contextoPatrimonial) && (
+        <p className="text-xs font-medium text-amber-700">
+          Patrimônio pendente
+        </p>
+      )}
 
       {(deslocamentos || tamanhos) && (
         <p className="mt-1 text-xs text-gray-600">
-          {deslocamentos || tamanhos}
+          Tamanho: {deslocamentos || tamanhos}
         </p>
+      )}
+      {ancoragem && (
+        <p className="text-xs text-gray-600">Ancoragem: {ancoragem}</p>
+      )}
+      {numeroOsCampo && (
+        <p className="text-xs text-gray-600">OS de campo: {numeroOsCampo}</p>
       )}
       {contrapeso && (
         <p className="mt-1 text-xs font-medium text-amber-700">{contrapeso}</p>
       )}
       {informacoesAdicionais}
-      {atividade?.equipeResponsavel && (
-        <p className="mt-1 text-xs text-gray-600">
-          Equipe: {atividade.equipeResponsavel}
-        </p>
-      )}
       {atividade?.observacoes && (
         <p className="mt-1 line-clamp-2 text-xs text-gray-600">
           Observação: {atividade.observacoes}

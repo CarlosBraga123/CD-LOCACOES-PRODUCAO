@@ -204,8 +204,12 @@ export default function ControlePatrimonios() {
     ).status === "conferido";
   };
   const pendenciasOperacionais = useMemo(
-    () => obterPendenciasOperacionais(atividades),
-    [atividades]
+    () => obterPendenciasOperacionais(atividades, {
+      obras,
+      registrosPatrimonio: registros,
+      equipamentosMestres,
+    }),
+    [atividades, equipamentosMestres, obras, registros]
   );
   const inventarioGeral = useMemo(() => {
     const individuais = patrimoniosIndividuais;

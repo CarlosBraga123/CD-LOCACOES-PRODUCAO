@@ -13,6 +13,44 @@ export const obterIdentidadeUnidadeEntrada = (atividade, item, indice) => {
   return `legado:${atividade.id ?? "sem-id"}:${indice}`;
 };
 
+export const itemPossuiVinculoPatrimonial = (item) =>
+  Boolean(
+    item?.statusVinculoPatrimonio === "VINCULADO" ||
+      (String(item?.idEquipamento || "").trim() &&
+        String(item?.numeroPatrimonio || item?.numeroPatrimonioAtual || "").trim())
+  );
+
+export const obterDataOrdemAtividade = (atividade) =>
+  String(atividade?.dataLiberacao || atividade?.dataAgendamento || "");
+
+const obterTimestampOrdemAtividade = (atividade) =>
+  String(
+    atividade?.criadoEm ||
+      atividade?.dataCriacao ||
+      atividade?.createdAt ||
+      atividade?.timestamp ||
+      ""
+  );
+
+export const compararOrdemTemporalAtividades = (atividadeA, atividadeB) => {
+  const porData = obterDataOrdemAtividade(atividadeA).localeCompare(
+    obterDataOrdemAtividade(atividadeB)
+  );
+  if (porData !== 0) return porData;
+
+  const timestampA = obterTimestampOrdemAtividade(atividadeA);
+  const timestampB = obterTimestampOrdemAtividade(atividadeB);
+  if (timestampA && timestampB && timestampA !== timestampB) {
+    return timestampA.localeCompare(timestampB);
+  }
+
+  return String(atividadeA?.id ?? "").localeCompare(
+    String(atividadeB?.id ?? ""),
+    "pt-BR",
+    { numeric: true }
+  );
+};
+
 export const criarUnidadesDaEntrada = (atividade) => {
   const itens = Array.isArray(atividade.itensEquipamentos)
     ? atividade.itensEquipamentos
@@ -23,6 +61,18 @@ export const criarUnidadesDaEntrada = (atividade) => {
   return Array.from({ length: quantidade }, (_, indice) => {
     const item = itens[indice] || {};
     const idUnidade = obterIdentidadeUnidadeEntrada(atividade, item, indice);
+    const itemInformaContrapeso = Object.prototype.hasOwnProperty.call(
+      item,
+      "usaContrapeso"
+    );
+    const atividadeInformaContrapeso = Object.prototype.hasOwnProperty.call(
+      atividade,
+      "usaContrapeso"
+    );
+    const usaContrapesoInformado = itemInformaContrapeso
+      ? typeof item.usaContrapeso === "boolean"
+      : atividadeInformaContrapeso &&
+        typeof atividade.usaContrapeso === "boolean";
 
     return {
       idUnidade,
@@ -47,6 +97,7 @@ export const criarUnidadesDaEntrada = (atividade) => {
         item.usaContrapeso !== undefined
           ? item.usaContrapeso === true
           : atividade.usaContrapeso === true,
+      usaContrapesoInformado,
       obraId: atividade.obraId || "",
       construtora: atividade.construtora || "",
       obra: atividade.obra || "",

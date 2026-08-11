@@ -20,6 +20,7 @@ import {
 import { obterUnidadesEquipamentosAtivos } from "../utils/equipamentosAtivos";
 import TrocaPatrimonioModal from "./TrocaPatrimonioModal";
 import {
+  contrapesoPossuiEstadoConhecido,
   criarAjusteConfiguracao,
   obterAjustesConfiguracaoEquipamentos,
   obterUltimoAjusteConfiguracao,
@@ -86,7 +87,9 @@ export default function PatrimonioEquipamentosModal({
                 : "nao_conferido"
               : item.usaContrapeso === true
                 ? "sim"
-                : "nao_conferido",
+                : contrapesoPossuiEstadoConhecido(item)
+                  ? "nao"
+                  : "nao_conferido",
             observacao: ultimaConferencia?.observacao || "",
             observacaoEditada: false,
           },

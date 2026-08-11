@@ -1,4 +1,12 @@
 import { obterIdItemPatrimonio } from "./patrimoniosEquipamentos";
+import { obterUnidadesEquipamentosAtivos } from "./equipamentosAtivos";
+import { obterObraDaAtividade } from "./obras";
+import {
+  compararOrdemTemporalAtividades,
+  itemPossuiVinculoPatrimonial,
+} from "./unidadesEquipamentos";
+
+export { itemPossuiVinculoPatrimonial } from "./unidadesEquipamentos";
 
 export const SERVICOS_COM_VINCULO_POSTERIOR = [
   "Instalação",
@@ -22,12 +30,6 @@ export const atividadePermitePatrimonioPosterior = (atividade) =>
 
 export const permiteVinculoPatrimonioPosterior = (servico) =>
   Boolean(String(servico || "").trim());
-
-export const itemPossuiVinculoPatrimonial = (item) =>
-  Boolean(
-    String(item?.idEquipamento || "").trim() &&
-      String(item?.numeroPatrimonio || "").trim()
-  );
 
 export const criarItensProvisoriosVinculo = (atividade, quantidadeInformada) => {
   if (!atividadePodeAlterarPatrimonio(atividade)) return [];
@@ -106,13 +108,86 @@ export const obterStatusVinculoPatrimonial = (atividade) =>
 export const obterQuantidadeVinculosPendentes = (atividade) =>
   obterResumoVinculoPatrimonial(atividade).pendentes;
 
-export const atividadeTemPatrimonioPendente = (atividade) =>
+const atividadeMarcadaComoPendente = (atividade) =>
   obterQuantidadeVinculosPendentes(atividade) > 0 &&
   (atividade?.pendenteVinculoPatrimonio === true ||
     ["PENDENTE", "PARCIAL"].includes(atividade?.statusVinculoPatrimonio));
 
-export const obterPendenciasOperacionais = (atividades = []) =>
-  atividades.filter(atividadeTemPatrimonioPendente).map((atividade) => ({
+const servicoPermitePendenciaDeIdentidade = (servico) =>
+  ["Deslocamento", "Manutenção", "Remoção", "Somente recolhimento"].includes(
+    servico
+  );
+
+export const obterAtividadesAnterioresAoVinculo = (atividades = [], atividade) => {
+  const dataReferencia = atividade?.dataLiberacao || atividade?.dataAgendamento || "";
+  return atividades.filter((item) => {
+    if (String(item.id) === String(atividade?.id)) return false;
+    const dataItem = item.dataLiberacao || item.dataAgendamento || "";
+    if (!dataItem || !dataReferencia) return false;
+    return compararOrdemTemporalAtividades(item, atividade) < 0;
+  });
+};
+
+const obterIdentidadesIndividuais = (unidade) =>
+  [
+    unidade?.idEquipamento,
+    unidade?.idItemOrigem,
+    unidade?.idUnidade,
+    unidade?.idItem,
+  ]
+    .map((valor) => String(valor || "").trim())
+    .filter(Boolean);
+
+export const unidadePossuiVinculoPosteriorReal = (unidade) => {
+  const identidades = obterIdentidadesIndividuais(unidade);
+  const possuiIdentidadeReal = identidades.some(
+    (identidade) => !identidade.startsWith("legado:")
+  );
+  const possuiReferenciaIndividual = Boolean(
+    String(
+      unidade?.numeroPatrimonio ||
+        unidade?.numeroPatrimonioAtual ||
+        unidade?.idEquipamento ||
+        ""
+    ).trim()
+  );
+  return possuiIdentidadeReal && possuiReferenciaIndividual;
+};
+
+export const obterCandidatosVinculoPatrimonial = ({
+  atividade,
+  atividades = [],
+  obras = [],
+  registrosPatrimonio,
+  equipamentosMestres,
+} = {}) => {
+  if (!atividade || !servicoPermitePendenciaDeIdentidade(atividade.servico)) return [];
+  const obra = obterObraDaAtividade(atividade, obras);
+  if (!obra) return [];
+  const anteriores = obterAtividadesAnterioresAoVinculo(atividades, atividade);
+  return obterUnidadesEquipamentosAtivos(
+    obra,
+    anteriores,
+    registrosPatrimonio,
+    equipamentosMestres
+  ).filter(
+    (unidade) =>
+      equipamentoCompativelComAtividade(unidade, atividade) &&
+      unidadePossuiVinculoPosteriorReal(unidade)
+  );
+};
+
+export const atividadeTemPatrimonioPendente = (atividade, contexto) => {
+  if (!atividadeMarcadaComoPendente(atividade)) return false;
+  if (!servicoPermitePendenciaDeIdentidade(atividade?.servico)) return true;
+  if (!contexto) return true;
+  return obterCandidatosVinculoPatrimonial({ atividade, ...contexto }).length > 0;
+};
+
+export const obterPendenciasOperacionais = (atividades = [], contexto = {}) =>
+  atividades.filter((atividade) =>
+    atividadeTemPatrimonioPendente(atividade, { atividades, ...contexto })
+  ).map((atividade) => ({
     id: `patrimonio:${atividade.id}`,
     tipo: "PATRIMONIO_PENDENTE_VINCULO",
     titulo: "Patrimônio pendente de vínculo",
@@ -183,7 +258,7 @@ export const aplicarVinculoPatrimonialPosterior = ({
   if (!equipamentoCompativelComAtividade(unidade, atividade)) {
     throw new Error("O equipamento selecionado não é compatível.");
   }
-  if (!obterIdItemPatrimonio(unidade) || !unidade.idEquipamento || !(unidade.numeroPatrimonio || unidade.numeroPatrimonioAtual)) {
+  if (!unidadePossuiVinculoPosteriorReal(unidade) || !obterIdItemPatrimonio(unidade)) {
     throw new Error("O equipamento não possui vínculo patrimonial válido.");
   }
 

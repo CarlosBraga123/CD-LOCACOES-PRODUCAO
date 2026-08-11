@@ -49,6 +49,7 @@ import AtividadeResumoCard from "./AtividadeResumoCard";
 import PatrimonioEquipamentosModal from "./PatrimonioEquipamentosModal";
 import {
   obterIdItemPatrimonio,
+  obterPatrimonioAtual,
   obterRegistrosPatrimonio,
 } from "../utils/patrimoniosEquipamentos";
 import {
@@ -141,6 +142,37 @@ const montarCategoriasAtivas = (resumo) => [
   { chave: "miniGruas", rotulo: "Mini Grua", valor: obterTotalGrupo(resumo, "Mini Grua") },
   { chave: "contrapesos", rotulo: "Contrapeso", valor: obterTotalGrupo(resumo, "Kit Contrapeso") },
 ];
+
+const configuracoesChipsAtivos = [
+  { chave: "mini-grua-500", rotulo: "Mini Grua 500 kg", prefixo: "Mini Grua 500kg", classe: "border-red-200 bg-red-50 text-red-600" },
+  { chave: "mini-grua-1t", rotulo: "Mini Grua 1 T", prefixo: "Mini Grua 1T", classe: "border-red-300 bg-red-100 text-red-900" },
+  { chave: "contrapeso", rotulo: "Kit Contrapeso", prefixo: "Kit Contrapeso", classe: "border-gray-200 bg-gray-100 text-gray-700" },
+  { chave: "manual", rotulo: "Balancinho Manual", prefixo: "Balancinho Manual", classe: "border-blue-300 bg-blue-100 text-blue-900" },
+  { chave: "eletrico", rotulo: "Balancinho Elétrico", prefixo: "Balancinho Elétrico", classe: "border-blue-200 bg-blue-50 text-blue-700" },
+];
+
+const montarChipsAtivos = (resumo) =>
+  configuracoesChipsAtivos
+    .map((configuracao) => ({
+      ...configuracao,
+      valor: obterTotalGrupo(resumo, configuracao.prefixo),
+    }))
+    .filter((categoria) => categoria.valor > 0);
+
+const ChipsAtivos = ({ resumo }) => (
+  <div className="flex items-center gap-1" aria-label="Equipamentos ativos por categoria">
+    {montarChipsAtivos(resumo).map((categoria) => (
+      <span
+        key={categoria.chave}
+        title={`${categoria.rotulo}: ${categoria.valor}`}
+        aria-label={`${categoria.rotulo}: ${categoria.valor}`}
+        className={`flex h-7 min-w-7 items-center justify-center rounded-md border px-1.5 text-xs font-bold leading-none ${categoria.classe}`}
+      >
+        {categoria.valor}
+      </span>
+    ))}
+  </div>
+);
 
 const atividadesRecentesDaObra = (obra, atividades) =>
   atividades
@@ -1180,6 +1212,7 @@ export default function ConstrutorasObras({
               <AtividadeResumoCard
                 key={atividade.id || `${atividade.dataLiberacao || atividade.dataAgendamento || "sem-data"}-${indice}`}
                 atividade={atividade}
+                contextoPatrimonial={{ atividades, obras }}
                 onClick={() => abrirAtividadeRecente(atividade)}
                 disabled={!atividade.id}
                 className={
@@ -1313,9 +1346,7 @@ export default function ConstrutorasObras({
                       ))}
                     </p>
                   </div>
-                  <div className="flex min-w-[42px] items-center justify-center rounded-lg bg-blue-50 px-2 text-xl font-bold text-blue-700">
-                    {totalAtivos}
-                  </div>
+                  <ChipsAtivos resumo={resumo} />
                 </button>
 
                 {aberta && (
@@ -1962,7 +1993,7 @@ export default function ConstrutorasObras({
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {obrasAtivasDetalhes.map(
-                ({ obra: obraAtiva, construtora: construtoraAtiva, totalAtivos, categorias }) => {
+                ({ obra: obraAtiva, construtora: construtoraAtiva, resumo, categorias }) => {
                   const categoriasVisiveis = categorias.filter(
                     (categoria) => categoria.valor > 0
                   );
@@ -1993,12 +2024,7 @@ export default function ConstrutorasObras({
                               "Sem construtora"}
                           </p>
                         </div>
-                        <div className="flex min-w-[48px] flex-col items-center rounded-lg bg-blue-50 px-2 py-1 text-blue-700">
-                          <span className="text-xl font-bold leading-none">
-                            {totalAtivos}
-                          </span>
-                          <span className="text-[10px] uppercase">ativos</span>
-                        </div>
+                        <ChipsAtivos resumo={resumo} />
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -2274,32 +2300,62 @@ export default function ConstrutorasObras({
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
-                  {servicosExecutados.map((atividade, indice) => (
-                    <button
-                      type="button"
-                      key={atividade.id || `executada-${indice}`}
-                      disabled={!atividade.id}
-                      onClick={() => atividade.id && abrirAtividade?.(atividade.id)}
-                      className={`w-full rounded border bg-gray-50 p-3 text-left ${
-                        atividade.id
-                          ? "cursor-pointer hover:border-blue-300 hover:bg-blue-50"
-                          : "cursor-default"
-                      }`}
-                    >
-                      <p className="font-medium">
-                        {atividade.servico || "Servico"} — {formatarEquipamentoDetalhesObra(atividade)}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        Quantidade: {atividade.quantidade || 1}
-                        {atividade.tamanho && atividade.equipamento === "Balancinho"
-                          ? ` | Tamanho: ${atividade.tamanho}m`
-                          : ""}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Agendado: {formatarDataDetalhesObra(atividade.dataAgendamento) || "-"} | Liberado: {formatarDataDetalhesObra(atividade.dataLiberacao) || "-"}
-                      </p>
-                    </button>
-                  ))}
+                  {servicosExecutados.map((atividade, indice) => {
+                    const itensEquipamentos = Array.isArray(
+                      atividade.itensEquipamentos
+                    )
+                      ? atividade.itensEquipamentos
+                      : [];
+                    const patrimonios = itensEquipamentos.length > 0
+                      ? itensEquipamentos.map((item) =>
+                          obterPatrimonioAtual(item, registrosPatrimonio)
+                        )
+                      : [
+                          obterPatrimonioAtual(atividade, registrosPatrimonio),
+                          ...(atividade.numerosPatrimonio || []),
+                        ];
+                    const patrimoniosVisiveis = [
+                      ...new Set(patrimonios.map(texto).filter(Boolean)),
+                    ];
+                    const tamanho =
+                      atividade.equipamento === "Balancinho"
+                        ? atividade.servico === "Deslocamento"
+                          ? atividade.tamanhoAnterior || atividade.tamanhoNovo
+                            ? `${atividade.tamanhoAnterior || "-"} → ${atividade.tamanhoNovo || "-"}`
+                            : ""
+                          : atividade.tamanho
+                            ? `${atividade.tamanho} m`
+                            : ""
+                        : "";
+
+                    return (
+                      <button
+                        type="button"
+                        key={atividade.id || `executada-${indice}`}
+                        disabled={!atividade.id}
+                        onClick={() => atividade.id && abrirAtividade?.(atividade.id)}
+                        className={`w-full rounded border bg-gray-50 p-3 text-left ${
+                          atividade.id
+                            ? "cursor-pointer hover:border-blue-300 hover:bg-blue-50"
+                            : "cursor-default"
+                        }`}
+                      >
+                        <p className="font-medium">
+                          {atividade.servico || "Servico"} — {formatarEquipamentoDetalhesObra(atividade)}
+                        </p>
+                        <div className="text-sm text-gray-600">
+                          {patrimoniosVisiveis.map((patrimonio) => (
+                            <p key={patrimonio}>Patrimônio: {patrimonio}</p>
+                          ))}
+                          {tamanho && <p>Tamanho: {tamanho}</p>}
+                          <p>Quantidade: {atividade.quantidade || 1}</p>
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          Liberação: {formatarDataDetalhesObra(atividade.dataLiberacao) || "-"}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </section>

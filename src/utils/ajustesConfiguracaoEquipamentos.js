@@ -64,6 +64,19 @@ export const obterUltimoAjusteConfiguracao = (
     .filter((ajuste) => !ajuste.data || ajuste.data <= dataReferencia)
     .at(-1) || null;
 
+export const contrapesoPossuiEstadoConhecido = (item = {}) => {
+  if (typeof item.contrapesoConferido === "boolean") {
+    return item.contrapesoConferido;
+  }
+  if (typeof item.usaContrapesoInformado === "boolean") {
+    return item.usaContrapesoInformado;
+  }
+  return (
+    Object.prototype.hasOwnProperty.call(item, "usaContrapeso") &&
+    typeof item.usaContrapeso === "boolean"
+  );
+};
+
 export const aplicarAjusteConfiguracaoNaUnidade = (unidade, ajuste) => ({
   ...unidade,
   ...(Object.prototype.hasOwnProperty.call(ajuste, "tamanho")
@@ -136,7 +149,7 @@ export const obterSituacaoConferenciaUnidade = (
     const contrapesoConhecido =
       ultimaConferencia
         ? typeof ultimaConferencia.usaContrapeso === "boolean"
-        : item.usaContrapeso === true;
+        : contrapesoPossuiEstadoConhecido(item);
     if (!contrapesoConhecido) faltantes.push("contrapeso");
   }
 

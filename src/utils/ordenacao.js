@@ -14,6 +14,29 @@ export const compararTextoPtBr = (a, b) =>
 export const ordenarPorTexto = (lista = [], seletor = (item) => item) =>
   [...lista].sort((a, b) => compararTextoPtBr(seletor(a), seletor(b)));
 
+export const ordenarPatrimoniosNumerados = (
+  lista = [],
+  obterPatrimonio = (item) => item?.numeroPatrimonio || item?.numeroPatrimonioAtual
+) => {
+  const obterNumero = (item) => {
+    const texto = String(obterPatrimonio(item) || "").trim();
+    return /^\d+$/.test(texto) ? Number(texto) : null;
+  };
+  const numerados = lista
+    .map((item, ordemOriginal) => ({ item, ordemOriginal, numero: obterNumero(item) }))
+    .filter(({ numero }) => numero !== null)
+    .sort(
+      (a, b) =>
+        a.numero - b.numero || a.ordemOriginal - b.ordemOriginal
+    )
+    .map(({ item }) => item);
+  let indiceNumerado = 0;
+
+  return lista.map((item) =>
+    obterNumero(item) === null ? item : numerados[indiceNumerado++]
+  );
+};
+
 export const ordenarConstrutoras = (construtoras = []) =>
   ordenarPorTexto(construtoras, (construtora) => construtora?.nome);
 

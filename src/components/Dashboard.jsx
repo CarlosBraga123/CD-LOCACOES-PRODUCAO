@@ -264,7 +264,9 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     });
 
     setFaturamentoMeses(faturamento);
-    const pendenciasOperacionais = obterPendenciasOperacionais(todas);
+    const pendenciasOperacionais = obterPendenciasOperacionais(todas, {
+      obras: obrasSalvas,
+    });
     const equipamentosPendentes = pendenciasOperacionais.reduce(
       (total, { atividade }) =>
         total + obterQuantidadeVinculosPendentes(atividade),
@@ -353,9 +355,9 @@ export default function Dashboard({ abrirAtividade, navegar }) {
 
   return (
     <div className="p-4 space-y-6">
-      <h2 className="text-xl font-bold mb-4">Painel CD Locacoes</h2>
+      <h2 className="text-xl font-bold mb-4">Painel</h2>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-6">
         {cards.map((card, idx) => (
           <button type="button" key={idx} onClick={() => card.acao === "pendencias-operacionais" && navegar?.("atividades", { destino: "atividades", acao: "filtrar-pendencias-operacionais" })} className={`${card.cor} p-4 rounded shadow-sm text-left ${card.acao ? "cursor-pointer hover:ring-2 hover:ring-amber-300" : ""}`}>
             <div className="text-sm text-gray-600">{card.titulo}</div>

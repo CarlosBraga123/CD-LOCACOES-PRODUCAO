@@ -42,6 +42,7 @@ export default function App() {
   const [contextoNavegacao, setContextoNavegacao] = useState(null);
   const [menuAberto, setMenuAberto] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(usuarioAdminSimulado);
+  const [logoFalhou, setLogoFalhou] = useState(false);
 
   const navegar = (pagina, contexto = null) => {
     setContextoNavegacao(contexto);
@@ -116,9 +117,17 @@ export default function App() {
           (menuAberto ? "block fixed inset-0 bg-white z-40 w-64 p-4" : "hidden")
         }
       >
-        <div className="flex flex-col items-center mb-6">
-          <img src="/logo.png" alt="Logo da empresa" className="h-12 w-auto mb-2" />
-          <h1 className="text-xl font-semibold">CD Locações</h1>
+        <div className="mt-4 mb-5 flex flex-col items-center">
+          {logoFalhou ? (
+            <span className="text-xl font-semibold">CD LOCAÇÕES</span>
+          ) : (
+            <img
+              src="/icon-512.png"
+              alt="CD LOCAÇÕES"
+              onError={() => setLogoFalhou(true)}
+              className="h-auto w-32 object-contain"
+            />
+          )}
         </div>
         <nav className="flex flex-col space-y-2">
           {(usuarioLogado.tipo === "admin" || usuarioLogado.tipo === "gestor") && (

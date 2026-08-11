@@ -36,6 +36,9 @@ export default function RelatorioServicos() {
     return servicosValidos.includes(atividade.servico);
   };
 
+  const obterNumeroOsCampo = (atividade) =>
+    String(atividade?.numeroOsCampo ?? "").trim();
+
   const formatarEquipamento = (atividade) => {
     if (atividade.equipamento === "Mini Grua") {
       return atividade.tipoMiniGrua ? `Mini Grua ${atividade.tipoMiniGrua}` : "Mini Grua";
@@ -374,6 +377,7 @@ export default function RelatorioServicos() {
         "Equipamento",
         "Quantidade",
         "Serviço",
+        "OS de campo",
         "Descrição dos equipamentos",
       ]);
       ["Balancinho", "Mini Grua"].forEach((eq) => {
@@ -383,6 +387,7 @@ export default function RelatorioServicos() {
             `${formatarEquipamento(a)}${atividadeTemMovimentoContrapeso(a) ? " - CONTRAPESO" : ""}`,
             obterQuantidadeAtividade(a),
             a.servico,
+            obterNumeroOsCampo(a),
             obterDescricoesEquipamentos(a).join(" | "),
           ]);
         });
@@ -460,6 +465,11 @@ export default function RelatorioServicos() {
                             <li key={a.id}>
                               {a.servico.toUpperCase()} — Data {formatarData(a.dataLiberacao)} ({formatarEquipamento(a)})
                               {" — "}{obterQuantidadeAtividade(a)} equipamento(s)
+                              {obterNumeroOsCampo(a) && (
+                                <span className="block text-xs">
+                                  OS de campo: {obterNumeroOsCampo(a)}
+                                </span>
+                              )}
                               {atividadeTemMovimentoContrapeso(a) && (
                                 <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-1 text-xs font-bold text-yellow-900">
                                   CONTRAPESO
@@ -480,6 +490,11 @@ export default function RelatorioServicos() {
                             <li key={a.id}>
                               {a.servico.toUpperCase()} — Data {formatarData(a.dataLiberacao)}
                               {" — "}{obterQuantidadeAtividade(a)} equipamento(s)
+                              {obterNumeroOsCampo(a) && (
+                                <span className="block text-xs">
+                                  OS de campo: {obterNumeroOsCampo(a)}
+                                </span>
+                              )}
                               {renderItensEquipamentos(a)}
                             </li>
                           ))}
@@ -544,6 +559,9 @@ export default function RelatorioServicos() {
                     <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-1 text-xs font-bold text-yellow-900">
                       CONTRAPESO
                     </span>
+                  )}
+                  {obterNumeroOsCampo(item) && (
+                    <div className="mt-1">OS de campo: {obterNumeroOsCampo(item)}</div>
                   )}
                   <div className="mt-1">Quantidade: {obterQuantidadeAtividade(item)}</div>
                   {renderItensEquipamentos(item)}
