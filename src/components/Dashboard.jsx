@@ -116,10 +116,34 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     const ativosMiniGrua = contarAtivosPorTipo("Mini Grua", obterTipoMiniGrua);
 
     const mesAtual = new Date().toISOString().slice(0, 7);
-    const servicosMes = todas.filter((atividade) => {
+    const atividadesMes = todas.filter((atividade) => {
       const mesReferencia = (atividade.dataLiberacao || atividade.dataAgendamento || "").slice(0, 7);
-      return mesReferencia === mesAtual && atividadeCobraServico(atividade);
+      return mesReferencia === mesAtual;
     });
+    const servicosMes = atividadesMes.filter(
+      (atividade) =>
+        atividade.servico !== "Manutenção" && atividadeCobraServico(atividade)
+    );
+    const servicosOutrasAtividades = [
+      "Manutenção",
+      "Somente aluguel",
+      "Somente recolhimento",
+    ];
+    const quantidadeOutrasAtividades = atividadesMes
+      .filter((atividade) =>
+        servicosOutrasAtividades.includes(atividade.servico)
+      )
+      .reduce((acc, atividade) => {
+        acc[atividade.servico] =
+          (acc[atividade.servico] || 0) + obterQuantidade(atividade);
+        return acc;
+      }, {});
+    const totalOutrasAtividades = Object.values(
+      quantidadeOutrasAtividades
+    ).reduce(
+      (total, quantidade) => total + Number(quantidade || 0),
+      0
+    );
     const quantidadeServicosMes = servicosMes.reduce((acc, atividade) => {
       acc[atividade.servico] = (acc[atividade.servico] || 0) + obterQuantidade(atividade);
       return acc;
@@ -291,6 +315,12 @@ export default function Dashboard({ abrirAtividade, navegar }) {
         cor: "bg-green-100",
         detalhes: quantidadeServicosMes,
       },
+      {
+        titulo: "Outras Atividades",
+        valor: totalOutrasAtividades,
+        cor: "bg-cyan-100",
+        detalhes: quantidadeOutrasAtividades,
+      },
       { titulo: "Balancinhos Ativos", valor: ativosBalancinho.total, cor: "bg-purple-100", detalhes: ativosBalancinho.porTipo },
       { titulo: "Mini Gruas Ativas", valor: ativosMiniGrua.total, cor: "bg-purple-200", detalhes: ativosMiniGrua.porTipo },
     ]);
@@ -357,7 +387,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     <div className="p-4 space-y-6">
       <h2 className="text-xl font-bold mb-4">Painel</h2>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-7">
         {cards.map((card, idx) => (
           <button type="button" key={idx} onClick={() => card.acao === "pendencias-operacionais" && navegar?.("atividades", { destino: "atividades", acao: "filtrar-pendencias-operacionais" })} className={`${card.cor} p-4 rounded shadow-sm text-left ${card.acao ? "cursor-pointer hover:ring-2 hover:ring-amber-300" : ""}`}>
             <div className="text-sm text-gray-600">{card.titulo}</div>

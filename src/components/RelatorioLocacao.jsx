@@ -122,6 +122,10 @@ export default function RelatorioLocacao() {
   const [linhasExpandidas, setLinhasExpandidas] = useState({});
   const [resumosObraExpandidos, setResumosObraExpandidos] = useState({});
   const [exportacaoPdfAtiva, setExportacaoPdfAtiva] = useState(false);
+  const obras = useMemo(
+    () => JSON.parse(localStorage.getItem("obras") || "[]"),
+    []
+  );
 
   useEffect(() => {
     setAtividades(JSON.parse(localStorage.getItem("atividades") || "[]"));
@@ -145,7 +149,6 @@ export default function RelatorioLocacao() {
   const dados = useMemo(() => {
     if (!mesSelecionado) return [];
 
-    const obras = JSON.parse(localStorage.getItem("obras") || "[]");
     const construtoras = JSON.parse(localStorage.getItem("construtoras") || "[]");
     const tabelaComercialPadrao = JSON.parse(localStorage.getItem("tabelaComercialPadrao") || "null") || {
       locacoes: {},
@@ -866,7 +869,7 @@ export default function RelatorioLocacao() {
       if (obra !== 0) return obra;
       return a.equipamento.localeCompare(b.equipamento);
     });
-  }, [atividades, mesSelecionado]);
+  }, [atividades, mesSelecionado, obras]);
 
   const linhaZerada = (linha) => {
     return (
