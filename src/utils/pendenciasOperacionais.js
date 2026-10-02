@@ -1,9 +1,16 @@
-import { obterIdItemPatrimonio } from "./patrimoniosEquipamentos";
+import {
+  normalizarNumeroPatrimonio,
+  obterIdItemPatrimonio,
+  obterRegistrosPatrimonio,
+} from "./patrimoniosEquipamentos";
 import { obterUnidadesEquipamentosAtivos } from "./equipamentosAtivos";
 import { obterObraDaAtividade } from "./obras";
+import { atividadeIniciaLocacao } from "./locacaoFinanceira";
+import { obterEquipamentosPatrimonio } from "./equipamentosPatrimonio";
 import {
   compararOrdemTemporalAtividades,
   itemPossuiVinculoPatrimonial,
+  obterIdentidadeUnidadeEntrada,
 } from "./unidadesEquipamentos";
 
 export { itemPossuiVinculoPatrimonial } from "./unidadesEquipamentos";
@@ -79,7 +86,7 @@ export const criarItensProvisoriosVinculo = (atividade, quantidadeInformada) => 
   });
 };
 
-export const obterResumoVinculoPatrimonial = (atividade) => {
+const obterResumoVinculoPatrimonialOriginal = (atividade) => {
   if (!atividadePodeAlterarPatrimonio(atividade)) {
     return { total: 0, vinculados: 0, pendentes: 0, status: "NAO_APLICAVEL" };
   }
@@ -102,14 +109,120 @@ export const obterResumoVinculoPatrimonial = (atividade) => {
   return { total, vinculados, pendentes, status };
 };
 
-export const obterStatusVinculoPatrimonial = (atividade) =>
-  obterResumoVinculoPatrimonial(atividade).status;
+const obterIdentidadesUnidade = (atividade, item, indice) =>
+  new Set(
+    [
+      item?.idItem,
+      item?.idItemOrigem,
+      item?.idUnidade,
+      obterIdentidadeUnidadeEntrada(atividade, item, indice),
+    ]
+      .map((valor) => String(valor || "").trim())
+      .filter(Boolean)
+  );
 
-export const obterQuantidadeVinculosPendentes = (atividade) =>
-  obterResumoVinculoPatrimonial(atividade).pendentes;
+const obterIdentidadesUnidadeAtiva = (unidade) =>
+  new Set(
+    [
+      unidade?.idItem,
+      unidade?.idItemOrigem,
+      unidade?.idUnidade,
+    ]
+      .map((valor) => String(valor || "").trim())
+      .filter(Boolean)
+  );
+
+const identidadesSeInterceptam = (identidadesA, identidadesB) =>
+  [...identidadesA].some((identidade) => identidadesB.has(identidade));
+
+const obterContextoPatrimonial = (contexto = {}) => ({
+  registrosPatrimonio: Array.isArray(contexto.registrosPatrimonio)
+    ? contexto.registrosPatrimonio
+    : obterRegistrosPatrimonio(),
+  equipamentosMestres: Array.isArray(contexto.equipamentosMestres)
+    ? contexto.equipamentosMestres
+    : obterEquipamentosPatrimonio(),
+});
+
+const montarUnidadesDaPendencia = (atividade, registrosPatrimonio) => {
+  const itens = Array.isArray(atividade?.itensEquipamentos)
+    ? atividade.itensEquipamentos
+    : [];
+  const quantidade = itens.length || Math.max(1, Number(atividade?.quantidade) || 1);
+
+  return Array.from({ length: quantidade }, (_, indice) => {
+    const item = itens[indice] || {};
+    const identidades = obterIdentidadesUnidade(atividade, item, indice);
+    const registro = registrosPatrimonio.find((candidato) =>
+      identidades.has(String(candidato?.idItem || "").trim())
+    );
+    const patrimonioAdministrativo = normalizarNumeroPatrimonio(
+      registro?.numeroPatrimonioAtual
+    );
+    const patrimonioLegado = normalizarNumeroPatrimonio(
+      atividade?.numerosPatrimonio?.[indice] ||
+        (indice === 0 ? atividade?.numeroPatrimonio : "")
+    );
+    const vinculoOriginal = itens.length
+      ? itemPossuiVinculoPatrimonial(item)
+      : Boolean(patrimonioLegado) && atividade?.pendenteVinculoPatrimonio !== true;
+
+    return {
+      identidades,
+      vinculado: vinculoOriginal || Boolean(patrimonioAdministrativo),
+    };
+  });
+};
+
+export const obterResumoVinculoPatrimonial = (atividade, contexto = {}) => {
+  if (!atividadePodeAlterarPatrimonio(atividade)) {
+    return { total: 0, vinculados: 0, pendentes: 0, status: "NAO_APLICAVEL" };
+  }
+  const { registrosPatrimonio, equipamentosMestres } =
+    obterContextoPatrimonial(contexto);
+  let unidades = montarUnidadesDaPendencia(atividade, registrosPatrimonio);
+
+  if (
+    atividadeIniciaLocacao(atividade) &&
+    Array.isArray(contexto.atividades) &&
+    Array.isArray(contexto.obras)
+  ) {
+    const obra = obterObraDaAtividade(atividade, contexto.obras);
+    if (obra) {
+      const unidadesAtivas = obterUnidadesEquipamentosAtivos(
+        obra,
+        contexto.atividades,
+        registrosPatrimonio,
+        equipamentosMestres
+      ).map((unidade) => obterIdentidadesUnidadeAtiva(unidade));
+      unidades = unidades.filter(({ identidades }) =>
+        unidadesAtivas.some((identidadesAtivas) =>
+          identidadesSeInterceptam(identidades, identidadesAtivas)
+        )
+      );
+    }
+  }
+
+  const total = unidades.length;
+  const vinculados = unidades.filter((unidade) => unidade.vinculado).length;
+  const pendentes = Math.max(0, total - vinculados);
+  const status =
+    total === 0 || pendentes === 0
+      ? "VINCULADO"
+      : vinculados > 0
+        ? "PARCIAL"
+        : "PENDENTE";
+  return { total, vinculados, pendentes, status };
+};
+
+export const obterStatusVinculoPatrimonial = (atividade, contexto) =>
+  obterResumoVinculoPatrimonial(atividade, contexto).status;
+
+export const obterQuantidadeVinculosPendentes = (atividade, contexto) =>
+  obterResumoVinculoPatrimonial(atividade, contexto).pendentes;
 
 const atividadeMarcadaComoPendente = (atividade) =>
-  obterQuantidadeVinculosPendentes(atividade) > 0 &&
+  obterResumoVinculoPatrimonialOriginal(atividade).pendentes > 0 &&
   (atividade?.pendenteVinculoPatrimonio === true ||
     ["PENDENTE", "PARCIAL"].includes(atividade?.statusVinculoPatrimonio));
 
@@ -179,6 +292,9 @@ export const obterCandidatosVinculoPatrimonial = ({
 
 export const atividadeTemPatrimonioPendente = (atividade, contexto) => {
   if (!atividadeMarcadaComoPendente(atividade)) return false;
+  if (obterResumoVinculoPatrimonial(atividade, contexto).pendentes === 0) {
+    return false;
+  }
   if (!servicoPermitePendenciaDeIdentidade(atividade?.servico)) return true;
   if (!contexto) return true;
   return obterCandidatosVinculoPatrimonial({ atividade, ...contexto }).length > 0;
@@ -193,7 +309,10 @@ export const obterPendenciasOperacionais = (atividades = [], contexto = {}) =>
     titulo: "Patrimônio pendente de vínculo",
     atividadeId: atividade.id,
     atividade,
-    resumo: obterResumoVinculoPatrimonial(atividade),
+    resumo: obterResumoVinculoPatrimonial(atividade, {
+      atividades,
+      ...contexto,
+    }),
   }));
 
 export const equipamentoCompativelComAtividade = (unidade, atividade) => {

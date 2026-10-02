@@ -1271,7 +1271,11 @@ export default function RelatorioLocacao({ contextoNavegacao = null }) {
 
   const encerramentosPendentes = atividades.filter(
     (atividade) =>
-      atividadeTemPatrimonioPendente(atividade, { atividades, obras }) &&
+      atividadeTemPatrimonioPendente(atividade, {
+        atividades,
+        obras,
+        registrosPatrimonio,
+      }) &&
       ["Remoção", "Somente recolhimento"].includes(atividade.servico)
   );
 

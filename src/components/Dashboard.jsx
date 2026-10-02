@@ -5,8 +5,9 @@ import { obterObraDaAtividade, normalizarTexto } from "../utils/obras";
 import AtividadeResumoCard from "./AtividadeResumoCard";
 import {
   obterPendenciasOperacionais,
-  obterQuantidadeVinculosPendentes,
 } from "../utils/pendenciasOperacionais";
+import { obterRegistrosPatrimonio } from "../utils/patrimoniosEquipamentos";
+import { obterEquipamentosPatrimonio } from "../utils/equipamentosPatrimonio";
 
 const servicosValidos = ["Instalação", "Deslocamento", "Manutenção", "Ascensão", "Remoção"];
 
@@ -18,6 +19,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
   const [cards, setCards] = useState([]);
   const [obras, setObras] = useState([]);
   const [faturamentoMeses, setFaturamentoMeses] = useState([]);
+  const [contextoPatrimonial, setContextoPatrimonial] = useState({});
 
   useEffect(() => {
     const usuarioSalvo = JSON.parse(localStorage.getItem("usuarioLogado"));
@@ -31,7 +33,15 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     const construtorasSalvas = JSON.parse(localStorage.getItem("construtoras") || "[]");
     const valoresServicos = JSON.parse(localStorage.getItem("valoresServicos") || "{}");
     const valoresPadrao = JSON.parse(localStorage.getItem("valoresPadrao") || "{}");
+    const registrosPatrimonio = obterRegistrosPatrimonio();
+    const equipamentosMestres = obterEquipamentosPatrimonio();
     setObras(obrasSalvas);
+    setContextoPatrimonial({
+      atividades: todas,
+      obras: obrasSalvas,
+      registrosPatrimonio,
+      equipamentosMestres,
+    });
 
     const hoje = new Date();
     const seteDiasAtras = new Date();
@@ -290,10 +300,11 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     setFaturamentoMeses(faturamento);
     const pendenciasOperacionais = obterPendenciasOperacionais(todas, {
       obras: obrasSalvas,
+      registrosPatrimonio,
+      equipamentosMestres,
     });
     const equipamentosPendentes = pendenciasOperacionais.reduce(
-      (total, { atividade }) =>
-        total + obterQuantidadeVinculosPendentes(atividade),
+      (total, { resumo }) => total + resumo.pendentes,
       0
     );
     setCards([
@@ -538,6 +549,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
                 <li key={a.id}>
                   <AtividadeResumoCard
                     atividade={a}
+                    contextoPatrimonial={contextoPatrimonial}
                     onClick={() => abrirAtividadeSegura(a.id)}
                     className="cursor-pointer hover:border-blue-300 hover:bg-blue-50"
                     title="Abrir atividade"

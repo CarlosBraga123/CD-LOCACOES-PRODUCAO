@@ -1212,7 +1212,11 @@ export default function ConstrutorasObras({
               <AtividadeResumoCard
                 key={atividade.id || `${atividade.dataLiberacao || atividade.dataAgendamento || "sem-data"}-${indice}`}
                 atividade={atividade}
-                contextoPatrimonial={{ atividades, obras }}
+                contextoPatrimonial={{
+                  atividades,
+                  obras,
+                  registrosPatrimonio,
+                }}
                 onClick={() => abrirAtividadeRecente(atividade)}
                 disabled={!atividade.id}
                 className={

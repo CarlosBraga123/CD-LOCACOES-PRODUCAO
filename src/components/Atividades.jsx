@@ -1740,7 +1740,12 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       if (filtrosLista.status === "liberadas" && !atividade.dataLiberacao) return false;
       if (
         filtrosLista.status === "patrimonio-pendente" &&
-        !atividadeTemPatrimonioPendente(atividade, { atividades, obras })
+        !atividadeTemPatrimonioPendente(atividade, {
+          atividades,
+          obras,
+          registrosPatrimonio: registrosPatrimonioAtuais,
+          equipamentosMestres,
+        })
       ) return false;
 
       if (busca) {
@@ -2827,7 +2832,16 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     </p>
   ) : (
     atividadesFiltradas.map((item) => {
-      const resumoVinculo = obterResumoVinculoPatrimonial(item);
+      const contextoPatrimonial = {
+        atividades,
+        obras,
+        registrosPatrimonio: registrosPatrimonioAtuais,
+        equipamentosMestres,
+      };
+      const resumoVinculo = obterResumoVinculoPatrimonial(
+        item,
+        contextoPatrimonial
+      );
       const possuiItensEquipamentos =
         Array.isArray(item.itensEquipamentos) && item.itensEquipamentos.length > 0;
       const itensComPatrimonio = possuiItensEquipamentos
@@ -2883,12 +2897,12 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           }`}
         >
               <strong>{item.servico} - {formatarEquipamento(item)}</strong>
-              {atividadeTemPatrimonioPendente(item, { atividades, obras }) && (
+              {atividadeTemPatrimonioPendente(item, contextoPatrimonial) && (
                 <span className="inline-block w-fit rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">
                   ⚠ Patrimônio pendente • {resumoVinculo.vinculados} de {resumoVinculo.total} vinculados
                 </span>
               )}
-              {atividadeTemPatrimonioPendente(item, { atividades, obras }) &&
+              {atividadeTemPatrimonioPendente(item, contextoPatrimonial) &&
                 ["Remoção", "Somente recolhimento"].includes(item.servico) && (
                   <div className="rounded bg-amber-50 p-2 text-sm text-amber-900">
                     Serviço concluído e cobrado. Encerramento da unidade aguardando vínculo patrimonial.
@@ -2950,7 +2964,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
               )}
 
               <div className="flex gap-2 flex-wrap mt-2">
-                {atividadeTemPatrimonioPendente(item, { atividades, obras }) && (
+                {atividadeTemPatrimonioPendente(item, contextoPatrimonial) && (
                   <button
                     type="button"
                     onClick={() => setAtividadeParaVincular(item)}
