@@ -50,10 +50,14 @@ export const verificarPatrimonioDuplicado = (
   idItemAtual,
   registros = [],
   equipamentosAtivos = [],
-  edicoes = []
+  edicoes = [],
+  opcoes = {}
 ) => {
   const normalizado = normalizarNumeroPatrimonio(numero);
   const idAtual = String(idItemAtual || "");
+  const idsRegistrosPermitidos = new Set(
+    (opcoes.idsRegistrosPermitidos || []).map((id) => String(id || ""))
+  );
   const registroDoProprioItem = registros.find(
     (registro) => String(registro.idItem) === idAtual
   );
@@ -69,6 +73,7 @@ export const verificarPatrimonioDuplicado = (
   const registroAtual = registros.find(
     (registro) =>
       String(registro.idItem) !== idAtual &&
+      !idsRegistrosPermitidos.has(String(registro.idItem || "")) &&
       normalizarNumeroPatrimonio(registro.numeroPatrimonioAtual) === normalizado
   );
   if (registroAtual) return { tipo: "atual", idItem: registroAtual.idItem };
@@ -87,18 +92,65 @@ export const verificarPatrimonioDuplicado = (
   );
   if (edicaoAtual) return { tipo: "atual", idItem: edicaoAtual.idItem };
 
-  const historico = registros.find((registro) =>
-    (registro.historico || []).some(
-      (evento) =>
-        normalizarNumeroPatrimonio(evento.numeroAnterior) === normalizado ||
-        normalizarNumeroPatrimonio(evento.numeroNovo) === normalizado
-    )
-  );
-  if (historico) {
-    return { tipo: "historico", idItem: historico.idItem };
+  if (opcoes.bloquearHistorico) {
+    const historico = registros.find((registro) =>
+      (registro.historico || []).some(
+        (evento) =>
+          normalizarNumeroPatrimonio(evento.numeroAnterior) === normalizado ||
+          normalizarNumeroPatrimonio(evento.numeroNovo) === normalizado
+      )
+    );
+    if (historico) {
+      return { tipo: "historico", idItem: historico.idItem };
+    }
   }
 
   return null;
+};
+
+export const registrarReutilizacaoPatrimonio = ({
+  registros,
+  item,
+  numeroNovo,
+  data,
+  obraId,
+  idsRegistrosOrigem = [],
+}) => {
+  const idItem = obterIdItemPatrimonio(item);
+  const numero = normalizarNumeroPatrimonio(numeroNovo);
+  const origens = new Set(
+    idsRegistrosOrigem
+      .map((id) => String(id || ""))
+      .filter((id) => id && id !== idItem)
+  );
+  const atuais = (Array.isArray(registros) ? registros : []).map((registro) => {
+    if (!origens.has(String(registro.idItem || ""))) return registro;
+    return {
+      ...registro,
+      numeroPatrimonioAtual: "",
+      historico: [
+        ...(registro.historico || []),
+        {
+          id: gerarIdHistorico(),
+          tipo: "desvinculo_reutilizacao",
+          numeroAnterior: numero,
+          numeroNovo: null,
+          data,
+          obraId: obraId || "",
+          motivo: "Patrimônio reutilizado em outra unidade ativa",
+          observacao: "",
+        },
+      ],
+    };
+  });
+
+  return registrarCadastroInicialPatrimonio({
+    registros: atuais,
+    item,
+    numeroNovo: numero,
+    data,
+    obraId,
+  });
 };
 
 const gerarIdHistorico = () =>

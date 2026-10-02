@@ -6,6 +6,9 @@ import Agenda from "./components/Agenda.tsx";
 import RelatorioFinanceiro from "./components/RelatorioFinanceiro";
 import RelatorioServicos from "./components/RelatorioServicos";
 import RelatorioLocacao from "./components/RelatorioLocacao";
+import RelatorioEquipamentosObra from "./components/RelatorioEquipamentosObra";
+import Relatorios from "./components/Relatorios";
+import FechamentoMensal from "./components/FechamentoMensal";
 import BackupImportacao from "./components/BackupImportacao";
 import Configuracoes from "./components/Configuracoes";
 import TabelaComercial from "./components/TabelaComercial";
@@ -15,7 +18,6 @@ import ListaDeTarefas from "./components/ListaDeTarefas";
 import ControlePatrimonios from "./components/ControlePatrimonios";
 import {
   BadgeDollarSign,
-  Boxes,
   Building2,
   CalendarDays,
   ClipboardList,
@@ -28,7 +30,6 @@ import {
   PackageSearch,
   Settings,
   Users,
-  Wallet,
 } from "lucide-react";
 
 // 👇 Simula um login automático como admin
@@ -71,9 +72,12 @@ export default function App() {
       case "construtorasobras": return "Construtoras e Obras";
       case "controlepatrimonios": return "Controle de Patrimônios";
       case "atividades": return "Atividades";
+      case "relatorios": return "Relatórios";
+      case "fechamentomensal": return "Fechamento Mensal";
       case "relatoriofinanceiro": return "Relatório Financeiro";
       case "relatorioservicos": return "Relatório de Serviços";
       case "relatoriolocacao": return "Relatório de Locação";
+      case "relatorioequipamentosobra": return "Equipamentos por Obra";
       case "backup": return "Backup";
       case "configuracoes": return "Configurações";
       case "tabelacomercial": return "Tabela Comercial";
@@ -90,9 +94,12 @@ export default function App() {
       case "controlepatrimonios": return <ControlePatrimonios />;
       case "atividades": return <Atividades contextoNavegacao={contextoNavegacao} limparContextoNavegacao={limparContextoNavegacao} />;
       case "agenda": return <Agenda />;
+      case "relatorios": return <Relatorios navegar={navegar} />;
+      case "fechamentomensal": return <FechamentoMensal navegar={navegar} />;
       case "relatoriofinanceiro": return <RelatorioFinanceiro />;
-      case "relatorioservicos": return <RelatorioServicos />;
-      case "relatoriolocacao": return <RelatorioLocacao />;
+      case "relatorioservicos": return <RelatorioServicos contextoNavegacao={contextoNavegacao} />;
+      case "relatoriolocacao": return <RelatorioLocacao contextoNavegacao={contextoNavegacao} />;
+      case "relatorioequipamentosobra": return <RelatorioEquipamentosObra />;
       case "backup": return <BackupImportacao />;
       case "configuracoes": return <Configuracoes />;
       case "tabelacomercial": return <TabelaComercial />;
@@ -149,11 +156,7 @@ export default function App() {
 
           <button onClick={() => { setSelectedPage("tarefas"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><ListTodo size={20} aria-hidden="true" />Lista de Tarefas</button>
           {(usuarioLogado.tipo === "admin" || usuarioLogado.tipo === "gestor") && (
-            <>
-              <button onClick={() => { setSelectedPage("relatoriofinanceiro"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Wallet size={20} aria-hidden="true" />Relatório Financeiro</button>
-              <button onClick={() => { setSelectedPage("relatorioservicos"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><FileBarChart size={20} aria-hidden="true" />Relatório de Serviços</button>
-              <button onClick={() => { setSelectedPage("relatoriolocacao"); setMenuAberto(false); }} className="flex items-center gap-2 text-left hover:text-blue-600"><Boxes size={20} aria-hidden="true" />Relatório de Locação</button>
-            </>
+            <button onClick={() => navegar("relatorios")} className="flex items-center gap-2 text-left hover:text-blue-600"><FileBarChart size={20} aria-hidden="true" />Relatórios</button>
           )}
           {usuarioLogado.tipo === "admin" && (
             <>

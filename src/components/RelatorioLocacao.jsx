@@ -12,6 +12,8 @@ import { normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/
 import { atividadeTemPatrimonioPendente } from "../utils/pendenciasOperacionais";
 import { obterIdentidadeCanonicaUnidade } from "../utils/unidadesEquipamentos";
 import { obterUnidadesEquipamentosAtivos } from "../utils/equipamentosAtivos";
+import { enriquecerDetalhamentoPatrimonial } from "../utils/detalhamentoPatrimonioLocacao";
+import { obterRegistrosPatrimonio } from "../utils/patrimoniosEquipamentos";
 
 const normalizarCategoriaLocacao = (valor) =>
   normalizarTexto(valor).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -59,7 +61,9 @@ const classificarOrigemFinanceiraLinha = (periodos = []) => {
 };
 
 const formatarTituloUnidadeNaCompetencia = (periodo) => {
-  const titulo = String(periodo?.equipamento || "Unidade não identificada");
+  const titulo = String(periodo?.equipamento || "Unidade não identificada")
+    .replace(/\s+—\s+Patrimônio\s+[^—]+$/i, "")
+    .replace(/\s+—\s+Sem patrimônio$/i, "");
   if (periodo?.saidaNoPeriodo) return titulo;
 
   return titulo.replace(
@@ -114,9 +118,11 @@ const criarResumoCategoriasLocacao = (linhas, { ocultarZerados = false } = {}) =
   };
 };
 
-export default function RelatorioLocacao() {
+export default function RelatorioLocacao({ contextoNavegacao = null }) {
   const [atividades, setAtividades] = useState([]);
-  const [mesSelecionado, setMesSelecionado] = useState(() => new Date().toISOString().slice(0, 7));
+  const [mesSelecionado, setMesSelecionado] = useState(
+    () => contextoNavegacao?.competencia || new Date().toISOString().slice(0, 7)
+  );
   const [visualizacao, setVisualizacao] = useState("data");
   const [mostrarZerados, setMostrarZerados] = useState(false);
   const [linhasExpandidas, setLinhasExpandidas] = useState({});
@@ -126,6 +132,7 @@ export default function RelatorioLocacao() {
     () => JSON.parse(localStorage.getItem("obras") || "[]"),
     []
   );
+  const registrosPatrimonio = useMemo(() => obterRegistrosPatrimonio(), []);
 
   useEffect(() => {
     setAtividades(JSON.parse(localStorage.getItem("atividades") || "[]"));
@@ -806,7 +813,7 @@ export default function RelatorioLocacao() {
       };
     };
     const montarDetalhamentoFinanceiroOficial = (linha) => {
-      const periodosFinanceiros = linha.periodosLocacao.map((periodo) => ({
+      const periodosFinanceirosOficiais = linha.periodosLocacao.map((periodo) => ({
         ...periodo,
         identidadeCanonica: periodo.idPeriodo,
         quantidadeDetalhe: periodo.quantidade,
@@ -822,6 +829,13 @@ export default function RelatorioLocacao() {
           periodo.dataEntrada <= fimMes &&
           (!periodo.dataSaida || periodo.dataSaida > fimMes),
       }));
+      const periodosFinanceiros = periodosFinanceirosOficiais.flatMap((periodo) =>
+        enriquecerDetalhamentoPatrimonial({
+          periodo,
+          atividadesPorId,
+          registrosPatrimonio,
+        })
+      );
       const saidas = periodosFinanceiros.filter((periodo) => periodo.saidaNoPeriodo);
       const ativos = periodosFinanceiros.filter(
         (periodo) => !periodo.saidaNoPeriodo && periodo.ativaNoFim
@@ -834,7 +848,7 @@ export default function RelatorioLocacao() {
       );
       const auditoria = auditarLinhaLocacao({
         ...linha,
-        periodosFinanceiros,
+        periodosFinanceiros: periodosFinanceirosOficiais,
       });
       if (import.meta.env.DEV && !auditoria.valido) {
         console.error("Auditoria financeira da locação", {
@@ -869,7 +883,7 @@ export default function RelatorioLocacao() {
       if (obra !== 0) return obra;
       return a.equipamento.localeCompare(b.equipamento);
     });
-  }, [atividades, mesSelecionado, obras]);
+  }, [atividades, mesSelecionado, obras, registrosPatrimonio]);
 
   const linhaZerada = (linha) => {
     return (
@@ -883,7 +897,15 @@ export default function RelatorioLocacao() {
     );
   };
 
-  const dadosVisiveis = mostrarZerados ? dados : dados.filter((linha) => !linhaZerada(linha));
+  const chaveObraContexto = contextoNavegacao?.obraId
+    ? obterChaveObra({ obraId: contextoNavegacao.obraId })
+    : "";
+  const dadosDoContexto = chaveObraContexto
+    ? dados.filter((linha) => linha.chaveObra === chaveObraContexto)
+    : dados;
+  const dadosVisiveis = mostrarZerados
+    ? dadosDoContexto
+    : dadosDoContexto.filter((linha) => !linhaZerada(linha));
   const resumoLocacao = dadosVisiveis.reduce(
     (acc, linha) => {
       acc.totalValorMensal += Number(linha.valorMensal || 0);
@@ -1128,6 +1150,12 @@ export default function RelatorioLocacao() {
           )}
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {periodo.exibirPatrimonioDetalhe && !periodo.saidaPatrimonialPendente && (
+            <>
+              <span>Patrimônio:</span>
+              <strong>{periodo.patrimonioDetalhe || "-"}</strong>
+            </>
+          )}
           {periodo.quantidadeDetalhe > 1 && (
             <>
               <span>Quantidade:</span>

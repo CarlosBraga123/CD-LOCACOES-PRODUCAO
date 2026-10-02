@@ -701,7 +701,7 @@ export default function ControlePatrimonios() {
           </div>
         </div>
       )}
-      {editor && <PatrimonioEquipamentosModal contexto={editor} registros={registros} equipamentosAtivos={ativos} obras={obras} onClose={() => setEditor(null)} onRegistrosAlterados={(novos) => { setRegistros(novos); const mestres = sincronizarPatrimoniosMestres(equipamentosMestres, novos); salvarEquipamentosPatrimonio(mestres); setEquipamentosMestres(mestres); setVersaoDados((versao) => versao + 1); }} onSubstituicaoConcluida={({ equipamentos }) => { setEquipamentosMestres(equipamentos); setEditor(null); }} />}
+      {editor && <PatrimonioEquipamentosModal contexto={editor} registros={registros} equipamentosAtivos={ativos} obras={obras} onClose={() => setEditor(null)} onRegistrosAlterados={(novos, mestresSalvos) => { setRegistros(novos); const mestres = mestresSalvos || sincronizarPatrimoniosMestres(equipamentosMestres, novos); salvarEquipamentosPatrimonio(mestres); setEquipamentosMestres(mestres); setVersaoDados((versao) => versao + 1); }} onSubstituicaoConcluida={({ equipamentos }) => { setEquipamentosMestres(equipamentos); setEditor(null); }} />}
       {pendenciaParaVincular && (
         <VincularPatrimonioModal
           atividade={pendenciaParaVincular}

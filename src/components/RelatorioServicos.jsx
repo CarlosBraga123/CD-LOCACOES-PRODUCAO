@@ -1,26 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { FileBarChart } from "lucide-react";
+import { FileBarChart, Printer } from "lucide-react";
 import { atividadePertenceObra, normalizarTexto, obterChaveObra, obterObraDaAtividade } from "../utils/obras";
 import {
   aplicarPatrimoniosAdministrativos,
   obterRegistrosPatrimonio,
 } from "../utils/patrimoniosEquipamentos";
+import { atividadeEhServicoFaturavel } from "../utils/financeiroAtividades";
+import { consolidarRelatorioServicos } from "../utils/relatorioServicos";
 
-export default function RelatorioServicos() {
+const obterPeriodoCompetencia = (competencia) => {
+  if (!/^\d{4}-\d{2}$/.test(competencia || "")) return { dataInicio: "", dataFim: "" };
+  const [ano, mes] = competencia.split("-").map(Number);
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  return {
+    dataInicio: `${competencia}-01`,
+    dataFim: `${competencia}-${String(ultimoDia).padStart(2, "0")}`,
+  };
+};
+
+export default function RelatorioServicos({ contextoNavegacao = null }) {
+  const periodoInicial = obterPeriodoCompetencia(contextoNavegacao?.competencia);
   const [atividades, setAtividades] = useState([]);
   const [construtoras, setConstrutoras] = useState([]);
   const [obras, setObras] = useState([]);
-  const [filtros, setFiltros] = useState({ construtora: "", obra: "", dataInicio: "", dataFim: "" });
+  const [valoresServicos, setValoresServicos] = useState({});
+  const [valoresPadrao, setValoresPadrao] = useState({});
+  const [filtros, setFiltros] = useState({
+    construtora: contextoNavegacao?.construtora || "",
+    obra: contextoNavegacao?.obraId ? obterChaveObra({ obraId: contextoNavegacao.obraId }) : "",
+    ...periodoInicial,
+  });
   const [mostrarFechamentoMes, setMostrarFechamentoMes] = useState(false);
-  const [mesSelecionado, setMesSelecionado] = useState("");
+  const [mesSelecionado, setMesSelecionado] = useState(contextoNavegacao?.competencia || "");
 
   useEffect(() => {
     setAtividades(JSON.parse(localStorage.getItem("atividades") || "[]"));
     setConstrutoras(JSON.parse(localStorage.getItem("construtoras") || "[]"));
     setObras(JSON.parse(localStorage.getItem("obras") || "[]"));
+    setValoresServicos(JSON.parse(localStorage.getItem("valoresServicos") || "{}"));
+    setValoresPadrao(JSON.parse(localStorage.getItem("valoresPadrao") || "{}"));
   }, []);
 
   const formatarData = (data) => {
@@ -29,12 +50,8 @@ export default function RelatorioServicos() {
     return `${d}/${m}/${y}`;
   };
 
-  const servicosValidos = ["Instalação", "Deslocamento", "Manutenção", "Ascensão", "Remoção"];
-  const atividadeCobraServico = (atividade) => {
-    if (atividade.cobraServico === false) return false;
-    if (atividade.cobraServico === true) return true;
-    return servicosValidos.includes(atividade.servico);
-  };
+  const atividadeCobraServico = (atividade) =>
+    atividadeEhServicoFaturavel(atividade, { valoresServicos, valoresPadrao });
 
   const obterNumeroOsCampo = (atividade) =>
     String(atividade?.numeroOsCampo ?? "").trim();
@@ -320,10 +337,47 @@ export default function RelatorioServicos() {
     })
     .sort((a, b) => new Date(b.dataLiberacao) - new Date(a.dataLiberacao));
 
+  const relatorioAtual = useMemo(
+    () =>
+      consolidarRelatorioServicos({
+        atividades: filtradas.map((atividade) => ({
+          ...atividade,
+          itensEquipamentos: obterItensEquipamentosParaApresentacao(atividade),
+        })),
+        valoresServicos,
+        valoresPadrao,
+      }),
+    [filtradas, valoresServicos, valoresPadrao]
+  );
+
+  const formatarMoeda = (valor) =>
+    Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+  const formatarCompetencia = () => {
+    const inicio = filtros.dataInicio?.slice(0, 7);
+    const fim = filtros.dataFim?.slice(0, 7);
+    const competencia = inicio && inicio === fim ? inicio : contextoNavegacao?.competencia;
+    if (!competencia) return "Todas as competências";
+    const [ano, mes] = competencia.split("-").map(Number);
+    const nomeMes = new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+      new Date(ano, mes - 1, 1)
+    );
+    return `${nomeMes.charAt(0).toUpperCase()}${nomeMes.slice(1)}/${ano}`;
+  };
+
+  const obraSelecionada = obras.find(
+    (obra) => obterChaveObraCadastrada(obra) === filtros.obra
+  );
+  const construtoraIdentificacao =
+    filtros.construtora || obraSelecionada?.construtora || "Todas as construtoras";
+  const obraIdentificacao = obraSelecionada?.nome || "Todas as obras";
+
   const obrasPorMes = atividades
     .filter((a) => a.dataLiberacao?.startsWith(mesSelecionado))
     .filter(atividadeCobraServico)
-    .filter((a) => a.servico !== "Manutenção")
     .reduce((acc, a) => {
       const chave = obterChaveObra(a);
       if (!acc[chave]) acc[chave] = { rotulo: obterRotuloObra(a), Balancinho: [], "Mini Grua": [] };
@@ -334,7 +388,6 @@ export default function RelatorioServicos() {
   const totaisMes = atividades
     .filter((a) => a.dataLiberacao?.startsWith(mesSelecionado))
     .filter(atividadeCobraServico)
-    .filter((a) => a.servico !== "Manutenção")
     .reduce(
       (acc, a) => {
         const eq = a.equipamento;
@@ -400,15 +453,75 @@ export default function RelatorioServicos() {
   };
 
   return (
-    <div className="p-4 space-y-4">
-      <h2 className="flex items-center gap-2 text-lg font-bold"><FileBarChart size={20} aria-hidden="true" />Relatório de Serviços</h2>
+    <div id="relatorio-servicos-impressao" className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
+      <style>{`
+        @page { size: A4 portrait; margin: 8mm; }
+        @media print {
+          html, body { width: 100% !important; margin: 0 !important; padding: 0 !important; background: white !important; }
+          body * { visibility: hidden; }
+          body > #root, #root > div, main {
+            width: 100% !important;
+            max-width: none !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: block !important;
+            overflow: visible !important;
+            box-sizing: border-box !important;
+          }
+          aside { display: none !important; }
+          #relatorio-servicos-impressao, #relatorio-servicos-impressao * { visibility: visible; }
+          #relatorio-servicos-impressao {
+            width: 194mm !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+            color: #111827 !important;
+          }
+          #relatorio-servicos-impressao .nao-imprimir { display: none !important; }
+          #relatorio-servicos-impressao .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: 3mm !important; }
+          #relatorio-servicos-impressao section { box-shadow: none !important; }
+          #relatorio-servicos-impressao section h3 { break-after: avoid; page-break-after: avoid; }
+          #relatorio-servicos-impressao .resumo-impressao { break-inside: avoid; page-break-inside: avoid; }
+          #relatorio-servicos-impressao .cabecalho-tabela-impressao { break-after: avoid; page-break-after: avoid; }
+          #relatorio-servicos-impressao .overflow-x-auto { overflow: visible !important; }
+          #relatorio-servicos-impressao table {
+            width: 100% !important;
+            min-width: 0 !important;
+            table-layout: auto;
+            font-size: 8pt !important;
+          }
+          #relatorio-servicos-impressao thead { display: table-header-group; }
+          #relatorio-servicos-impressao tfoot { display: table-footer-group; }
+          #relatorio-servicos-impressao tr { break-inside: avoid; page-break-inside: avoid; }
+          #relatorio-servicos-impressao th, #relatorio-servicos-impressao td { padding: 1.4mm 1.2mm !important; }
+          #relatorio-servicos-impressao td span { white-space: normal !important; }
+        }
+      `}</style>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-xl font-bold text-gray-800">
+          <FileBarChart size={22} aria-hidden="true" />RELATÓRIO DE SERVIÇOS
+        </h2>
 
-      <button
-        onClick={() => setMostrarFechamentoMes(!mostrarFechamentoMes)}
-        className="bg-blue-600 text-white px-4 py-2 rounded shadow"
-      >
-        Relatório Fechamento de Mês Geral
-      </button>
+        <div className="nao-imprimir flex flex-wrap gap-2">
+          {!mostrarFechamentoMes && (
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <Printer size={18} aria-hidden="true" /> Imprimir / Salvar PDF
+            </button>
+          )}
+          <button
+            onClick={() => setMostrarFechamentoMes(!mostrarFechamentoMes)}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            {mostrarFechamentoMes ? "Voltar ao relatório" : "Fechamento geral e exportações"}
+          </button>
+        </div>
+      </div>
 
       {mostrarFechamentoMes && (
         <div className="mt-4 space-y-4" id="relatorio-fechamento-mes">
@@ -510,69 +623,135 @@ export default function RelatorioServicos() {
       )}
 
       {!mostrarFechamentoMes && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <select
-              value={filtros.construtora}
-              onChange={(e) => setFiltros({ ...filtros, construtora: e.target.value, obra: "" })}
-              className="border p-2 rounded"
-            >
-              <option value="">Todas as Construtoras</option>
-              {construtoras.map((c) => (
-                <option key={c.id} value={c.nome}>{c.nome}</option>
+        <div className="space-y-5">
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="nao-imprimir grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Construtora
+                <select
+                  value={filtros.construtora}
+                  onChange={(e) => setFiltros({ ...filtros, construtora: e.target.value, obra: "" })}
+                  className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm font-normal normal-case text-gray-800"
+                >
+                  <option value="">Todas as Construtoras</option>
+                  {construtoras.map((c) => (
+                    <option key={c.id} value={c.nome}>{c.nome}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Obra
+                <select
+                  value={filtros.obra}
+                  onChange={(e) => setFiltros({ ...filtros, obra: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm font-normal normal-case text-gray-800"
+                >
+                  <option value="">Todas as Obras</option>
+                  {obras
+                    .filter((o) => !filtros.construtora || o.construtora === filtros.construtora)
+                    .map((o) => (
+                      <option key={o.id} value={obterChaveObraCadastrada(o)}>{o.nome}</option>
+                    ))}
+                </select>
+              </label>
+
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Data inicial
+                <input
+                  type="date"
+                  value={filtros.dataInicio}
+                  onChange={(e) => setFiltros({ ...filtros, dataInicio: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm font-normal text-gray-800"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Data final
+                <input
+                  type="date"
+                  value={filtros.dataFim}
+                  onChange={(e) => setFiltros({ ...filtros, dataFim: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm font-normal text-gray-800"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-2 border-t border-gray-100 pt-4 text-sm sm:grid-cols-3">
+              <p><span className="text-gray-500">Competência:</span> <strong>{formatarCompetencia()}</strong></p>
+              <p><span className="text-gray-500">Construtora:</span> <strong>{construtoraIdentificacao}</strong></p>
+              <p><span className="text-gray-500">Obra:</span> <strong>{obraIdentificacao}</strong></p>
+            </div>
+          </section>
+
+          <section className="resumo-impressao rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700">Resumo</h3>
+            <div className="divide-y divide-gray-100">
+              {relatorioAtual.resumo.map((item) => (
+                <div key={item.servico} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 py-2 text-sm">
+                  <span className="font-medium text-gray-700">{item.rotulo}</span>
+                  <span className="min-w-8 text-right tabular-nums text-gray-600">{item.quantidade}</span>
+                  <span className="min-w-28 text-right font-medium tabular-nums text-gray-800">{formatarMoeda(item.valor)}</span>
+                </div>
               ))}
-            </select>
+              {relatorioAtual.resumo.length === 0 && (
+                <p className="py-5 text-center text-sm text-gray-500">Nenhum serviço faturável para os filtros selecionados.</p>
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between border-t-2 border-gray-200 pt-3 font-bold text-gray-900">
+              <span>TOTAL SERVIÇOS</span>
+              <span className="tabular-nums">{formatarMoeda(relatorioAtual.totalServicos)}</span>
+            </div>
+          </section>
 
-            <select
-              value={filtros.obra}
-              onChange={(e) => setFiltros({ ...filtros, obra: e.target.value })}
-              className="border p-2 rounded"
-            >
-              <option value="">Todas as Obras</option>
-              {obras
-                .filter((o) => !filtros.construtora || o.construtora === filtros.construtora)
-                .map((o) => (
-                  <option key={o.id} value={obterChaveObraCadastrada(o)}>{o.nome}</option>
-                ))}
-            </select>
-
-            <input
-              type="date"
-              value={filtros.dataInicio}
-              onChange={(e) => setFiltros({ ...filtros, dataInicio: e.target.value })}
-              className="border p-2 rounded"
-            />
-            <input
-              type="date"
-              value={filtros.dataFim}
-              onChange={(e) => setFiltros({ ...filtros, dataFim: e.target.value })}
-              className="border p-2 rounded"
-            />
-          </div>
-
-          {filtradas.length > 0 && (
-            <ul className="mt-4 space-y-2">
-              {filtradas.map((item) => (
-                <li key={item.id} className="border p-3 rounded bg-white shadow-sm">
-                  <strong>{item.servico} • {formatarEquipamento(item)}</strong>
-                  {atividadeTemMovimentoContrapeso(item) && (
-                    <span className="ml-2 inline-block rounded bg-yellow-200 px-2 py-1 text-xs font-bold text-yellow-900">
-                      CONTRAPESO
-                    </span>
+          <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="cabecalho-tabela-impressao border-b border-gray-200 px-4 py-3">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700">Detalhamento dos serviços</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-[820px] w-full text-sm">
+                <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3">Data</th>
+                    <th className="px-4 py-3">Serviço</th>
+                    <th className="px-4 py-3">Patrimônio</th>
+                    <th className="px-4 py-3">Detalhe</th>
+                    <th className="px-4 py-3">OS Campo</th>
+                    <th className="px-4 py-3 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {relatorioAtual.detalhes.map((item) => (
+                    <tr key={item.id} className="align-top text-gray-700 hover:bg-gray-50/70">
+                      <td className="whitespace-nowrap px-4 py-3">{formatarData(item.data)}</td>
+                      <td className="px-4 py-3 font-medium">{item.servico}</td>
+                      <td className="px-4 py-3">
+                        {item.patrimonios.length > 0
+                          ? item.patrimonios.map((patrimonio) => <span key={patrimonio} className="block">{patrimonio}</span>)
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {item.detalhes.length > 0
+                          ? item.detalhes.map((detalhe) => <span key={detalhe} className="block whitespace-nowrap">{detalhe}</span>)
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">{item.numeroOsCampo || "-"}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums">{formatarMoeda(item.valor)}</td>
+                    </tr>
+                  ))}
+                  {relatorioAtual.detalhes.length === 0 && (
+                    <tr><td colSpan="6" className="px-4 py-10 text-center text-gray-500">Nenhum serviço faturável encontrado.</td></tr>
                   )}
-                  {obterNumeroOsCampo(item) && (
-                    <div className="mt-1">OS de campo: {obterNumeroOsCampo(item)}</div>
-                  )}
-                  <div className="mt-1">Quantidade: {obterQuantidadeAtividade(item)}</div>
-                  {renderItensEquipamentos(item)}
-                  <div className="mt-2">{item.construtora} / {item.obra}</div>
-                  <div className="mt-2">Liberado</div>
-                  <div>{formatarData(item.dataLiberacao)}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
+                </tbody>
+                <tfoot className="border-t-2 border-gray-200 bg-gray-50 font-bold text-gray-900">
+                  <tr>
+                    <td colSpan="5" className="px-4 py-3">TOTAL SERVIÇOS</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatarMoeda(relatorioAtual.totalServicos)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );

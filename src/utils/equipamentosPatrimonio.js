@@ -189,6 +189,150 @@ export const obterIdEquipamentoDoItem = (item, equipamentos = []) => {
   );
 };
 
+const motivoIndisponibilidadeMestre = {
+  EM_MANUTENCAO: "em_manutencao",
+  INDISPONIVEL: "indisponivel",
+  BAIXADO: "baixado",
+};
+
+export const avaliarReutilizacaoEquipamentoMestre = ({
+  numero,
+  idItemAtual,
+  equipamentos = [],
+  registrosPatrimonio = [],
+  equipamentosAtivos = [],
+  edicoes = [],
+}) => {
+  const patrimonio = normalizarNumeroPatrimonio(numero);
+  const idAtual = String(idItemAtual || "");
+  const mestres = equipamentos.filter(
+    (item) =>
+      normalizarNumeroPatrimonio(item.numeroPatrimonioAtual) === patrimonio
+  );
+  if (mestres.length > 1) {
+    return { permitido: false, motivo: "mestres_duplicados", mestre: null };
+  }
+  const mestre = mestres[0] || null;
+  const idsDoMestre = new Set(
+    [mestre?.idEquipamento, mestre?.idItemOrigem]
+      .map((id) => String(id || ""))
+      .filter(Boolean)
+  );
+  const unidadeAtivaConflitante = equipamentosAtivos.find((item) => {
+    const idItem = obterIdItemPatrimonio(item);
+    if (idItem === idAtual) return false;
+    return (
+      (mestre && idsDoMestre.has(String(item.idEquipamento || ""))) ||
+      obterPatrimonioAtual(item, registrosPatrimonio) === patrimonio
+    );
+  });
+  if (unidadeAtivaConflitante) {
+    return {
+      permitido: false,
+      motivo: "unidade_ativa",
+      mestre,
+      unidadeAtiva: unidadeAtivaConflitante,
+    };
+  }
+  const edicaoConflitante = edicoes.find(
+    (item) =>
+      String(item.idItem || "") !== idAtual &&
+      normalizarNumeroPatrimonio(item.numero) === patrimonio
+  );
+  if (edicaoConflitante) {
+    return { permitido: false, motivo: "edicao_simultanea", mestre };
+  }
+  const registrosAtuais = registrosPatrimonio.filter(
+    (registro) =>
+      String(registro.idItem || "") !== idAtual &&
+      normalizarNumeroPatrimonio(registro.numeroPatrimonioAtual) === patrimonio
+  );
+  const registrosDoMestre = mestre
+    ? registrosAtuais.filter((registro) =>
+        idsDoMestre.has(String(registro.idItem || ""))
+      )
+    : [];
+  if (registrosAtuais.length !== registrosDoMestre.length) {
+    return { permitido: false, motivo: "vinculo_atual", mestre };
+  }
+  if (!mestre) {
+    return {
+      permitido: true,
+      motivo: "novo",
+      mestre: null,
+      idsRegistrosTransferiveis: [],
+    };
+  }
+  if (mestre.ativo === false) {
+    return { permitido: false, motivo: "inativo", mestre };
+  }
+  const motivoProtegido =
+    motivoIndisponibilidadeMestre[mestre.situacaoAdministrativa];
+  if (motivoProtegido) {
+    return { permitido: false, motivo: motivoProtegido, mestre };
+  }
+  if (mestre.situacaoAdministrativa === "LOCADO") {
+    const associadoAPropriaUnidade =
+      String(mestre.idItemOrigem || "") === idAtual ||
+      equipamentosAtivos.some(
+        (item) =>
+          obterIdItemPatrimonio(item) === idAtual &&
+          String(item.idEquipamento || "") ===
+            String(mestre.idEquipamento || "")
+      );
+    if (!associadoAPropriaUnidade) {
+      return { permitido: false, motivo: "locado", mestre };
+    }
+  } else if (mestre.situacaoAdministrativa !== "NO_GALPAO") {
+    return { permitido: false, motivo: "situacao_incompativel", mestre };
+  }
+  return {
+    permitido: true,
+    motivo: "reutilizacao",
+    mestre,
+    idsRegistrosTransferiveis: registrosDoMestre.map((registro) =>
+      String(registro.idItem || "")
+    ),
+  };
+};
+
+export const associarEquipamentoMestreAUnidade = ({
+  equipamentos = [],
+  idEquipamento,
+  idItemDestino,
+  data,
+  obraId = "",
+}) =>
+  equipamentos.map((equipamento) => {
+    if (String(equipamento.idEquipamento || "") !== String(idEquipamento || "")) {
+      return equipamento;
+    }
+    if (
+      String(equipamento.idItemOrigem || "") === String(idItemDestino || "") &&
+      equipamento.situacaoAdministrativa === "LOCADO"
+    ) {
+      return equipamento;
+    }
+    return {
+      ...equipamento,
+      idItemOrigem: String(idItemDestino || ""),
+      situacaoAdministrativa: "LOCADO",
+      historicoAdministrativo: [
+        ...(equipamento.historicoAdministrativo || []),
+        {
+          id: gerarId("historico-admin"),
+          tipo: "reutilizacao",
+          data: data || new Date().toISOString().slice(0, 10),
+          situacaoAnterior: equipamento.situacaoAdministrativa || "",
+          situacaoNova: "LOCADO",
+          motivo: "Equipamento disponível reutilizado em nova unidade",
+          observacao: "",
+          obraId,
+        },
+      ],
+    };
+  });
+
 const copiarDadosTecnicos = (item = {}) => ({
   equipamento: item.equipamento || "",
   tipoBalancinho: item.tipoBalancinho || "",
@@ -365,6 +509,11 @@ export const reconciliarSituacoesEquipamentos = ({
   data,
   obraOrigemId = "",
 }) => {
+  const situacoesAdministrativasProtegidas = new Set([
+    "EM_MANUTENCAO",
+    "INDISPONIVEL",
+    "BAIXADO",
+  ]);
   const idsAtivos = new Set(
     equipamentosAtivos.flatMap((item) => [
       String(item.idEquipamento || ""),
@@ -376,7 +525,13 @@ export const reconciliarSituacoesEquipamentos = ({
     const estaAtivo =
       idsAtivos.has(String(equipamento.idEquipamento)) ||
       idsAtivos.has(String(equipamento.idItemOrigem || ""));
-    if (estaAtivo && equipamento.situacaoAdministrativa !== "LOCADO") {
+    if (
+      estaAtivo &&
+      equipamento.situacaoAdministrativa !== "LOCADO" &&
+      !situacoesAdministrativasProtegidas.has(
+        equipamento.situacaoAdministrativa
+      )
+    ) {
       alterado = true;
       const atualizado = alterarEquipamentoPatrimonio({
         equipamentos: [equipamento],

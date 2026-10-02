@@ -15,9 +15,9 @@ import {
   obterEquipamentosPatrimonio,
   migrarEquipamentosConhecidos,
   montarIdentificadoresEquipamentosAtivos,
-  reconciliarSituacoesEquipamentos,
   salvarEquipamentosPatrimonio,
 } from "../utils/equipamentosPatrimonio";
+import { reconciliarPatrimonioAposAtividades } from "../utils/reconciliacaoPatrimonial";
 import {
   normalizarNumeroPatrimonio,
   obterPatrimonioAtual,
@@ -220,14 +220,20 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
 
   useEffect(() => {
     const dadosSalvos = JSON.parse(localStorage.getItem("atividades")) || [];
+    const equipamentosSalvos = obterEquipamentosPatrimonio();
     setAtividades(dadosSalvos);
-    setEquipamentosMestres(obterEquipamentosPatrimonio());
 
     const construtorasSalvas = JSON.parse(localStorage.getItem("construtoras")) || [];
     setConstrutoras(construtorasSalvas);
 
     const obrasSalvas = JSON.parse(localStorage.getItem("obras")) || [];
     setObras(obrasSalvas);
+    const reconciliacaoInicial = reconciliarPatrimonioAposAtividades({
+      atividades: dadosSalvos,
+      obras: obrasSalvas,
+      equipamentos: equipamentosSalvos,
+    });
+    setEquipamentosMestres(reconciliacaoInicial.equipamentos);
     setDadosCarregados(true);
 
     const atividadeParaLocalizar = localStorage.getItem("atividadeParaLocalizar");
@@ -1057,6 +1063,21 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     return true;
   };
 
+  const posProcessarPatrimonio = (
+    atividadesAtualizadas,
+    { data = "", obraOrigemId = "", equipamentos = equipamentosMestres } = {}
+  ) => {
+    const resultado = reconciliarPatrimonioAposAtividades({
+      atividades: atividadesAtualizadas,
+      obras,
+      equipamentos,
+      data: data || new Date().toISOString().slice(0, 10),
+      obraOrigemId,
+    });
+    setEquipamentosMestres(resultado.equipamentos);
+    return resultado;
+  };
+
   const salvar = () => {
     const camposObrigatorios = [
       { nome: "Construtora", valor: form.construtora },
@@ -1354,6 +1375,10 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
 
     setAtividades(novas);
     localStorage.setItem("atividades", JSON.stringify(novas));
+    posProcessarPatrimonio(novas, {
+      data: novaAtividade.dataLiberacao || novaAtividade.dataAgendamento,
+      obraOrigemId: novaAtividade.obraId,
+    });
     setForm({
       id: null,
       construtora: "",
@@ -1425,22 +1450,16 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
   const excluir = (id) => {
     if (!window.confirm("Tem certeza que deseja excluir esta atividade?")) return;
 
+    const atividadeExcluida = atividades.find((a) => a.id === id);
     const novas = atividades.filter((a) => a.id !== id);
     setAtividades(novas);
     localStorage.setItem("atividades", JSON.stringify(novas));
-    const ativosDepoisDoSalvamento = obras.flatMap((obra) =>
-      obterUnidadesEquipamentosAtivos(obra, novas)
-    );
-    const reconciliacao = reconciliarSituacoesEquipamentos({
-      equipamentos: obterEquipamentosPatrimonio(),
-      equipamentosAtivos: ativosDepoisDoSalvamento,
-      data: novaAtividade.dataLiberacao || novaAtividade.dataAgendamento,
-      obraOrigemId: novaAtividade.obraId,
+    posProcessarPatrimonio(novas, {
+      data:
+        atividadeExcluida?.dataLiberacao ||
+        atividadeExcluida?.dataAgendamento,
+      obraOrigemId: atividadeExcluida?.obraId || "",
     });
-    if (reconciliacao.alterado) {
-      salvarEquipamentosPatrimonio(reconciliacao.equipamentos);
-      setEquipamentosMestres(reconciliacao.equipamentos);
-    }
   };
 
   const abrirOrdemServico = (item) => {
@@ -2945,10 +2964,10 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
                     onClick={() => {
                       const atualizadas = atividades.map((a) =>
                         a.id === item.id ? { ...a, iniciado: true } : a
-                      );
-                      setAtividades(atualizadas);
-                      localStorage.setItem("atividades", JSON.stringify(atualizadas));
-                    }}
+                       );
+                       setAtividades(atualizadas);
+                       localStorage.setItem("atividades", JSON.stringify(atualizadas));
+                     }}
                     className="bg-white border rounded-xl px-4 py-1 text-orange-600 shadow-sm"
                   >
                     Iniciar Serviço
@@ -2972,6 +2991,10 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
                       );
                       setAtividades(atualizadas);
                       localStorage.setItem("atividades", JSON.stringify(atualizadas));
+                      posProcessarPatrimonio(atualizadas, {
+                        data: dataLiberacao,
+                        obraOrigemId: item.obraId || "",
+                      });
                     }}
                     className="bg-white border rounded-xl px-4 py-1 text-green-600 shadow-sm"
                   >
@@ -3059,8 +3082,9 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           atividades={atividades}
           obras={obras}
           onClose={() => setAtividadeParaVincular(null)}
-          onVinculado={(atualizadas) => {
+          onVinculado={(atualizadas, equipamentosReconciliados) => {
             setAtividades(atualizadas);
+            setEquipamentosMestres(equipamentosReconciliados);
             setAtividadeParaVincular(null);
           }}
         />

@@ -4,9 +4,8 @@ import { atividadeIniciaLocacao } from "../utils/locacaoFinanceira";
 import { ordenarPatrimoniosNumerados } from "../utils/ordenacao";
 import {
   obterEquipamentosPatrimonio,
-  reconciliarSituacoesEquipamentos,
-  salvarEquipamentosPatrimonio,
 } from "../utils/equipamentosPatrimonio";
+import { reconciliarPatrimonioAposAtividades } from "../utils/reconciliacaoPatrimonial";
 import {
   aplicarVinculoPatrimonialPosterior,
   criarItensProvisoriosVinculo,
@@ -70,6 +69,7 @@ export default function VincularPatrimonioModal({
         .filter(
           (item) =>
             item.ativo !== false &&
+            item.situacaoAdministrativa === "NO_GALPAO" &&
             item.numeroPatrimonioAtual &&
             !idsJaVinculados.has(String(item.idEquipamento)) &&
             !idsAtivos.has(String(item.idEquipamento))
@@ -120,6 +120,7 @@ export default function VincularPatrimonioModal({
         .filter(
           (item) =>
             item.ativo !== false &&
+            item.situacaoAdministrativa === "NO_GALPAO" &&
             item.numeroPatrimonioAtual &&
             !idsJaVinculados.has(String(item.idEquipamento)) &&
             !idsAtivos.has(String(item.idEquipamento))
@@ -191,17 +192,14 @@ export default function VincularPatrimonioModal({
           );
         }
       }
-      const ativosAtualizados = obras.flatMap((obraAtual) =>
-        obterUnidadesEquipamentosAtivos(obraAtual, atualizadas)
-      );
       localStorage.setItem("atividades", JSON.stringify(atualizadas));
-      const reconciliacao = reconciliarSituacoesEquipamentos({
+      const reconciliacao = reconciliarPatrimonioAposAtividades({
+        atividades: atualizadas,
+        obras,
         equipamentos: mestres,
-        equipamentosAtivos: ativosAtualizados,
         data: dataAtividade(atividade) || new Date().toISOString().slice(0, 10),
         obraOrigemId: atividade.obraId || "",
       });
-      if (reconciliacao.alterado) salvarEquipamentosPatrimonio(reconciliacao.equipamentos);
       onVinculado(atualizadas, reconciliacao.equipamentos);
     } catch (erro) {
       alert(erro.message || "Não foi possível concluir o vínculo.");

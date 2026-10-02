@@ -6,12 +6,15 @@ import {
   obterIdItemPatrimonio,
   obterPatrimonioAtual,
   registrarCadastroInicialPatrimonio,
+  registrarReutilizacaoPatrimonio,
   registrarTrocaPatrimonio,
   salvarRegistrosPatrimonio,
   validarNumeroPatrimonio,
   verificarPatrimonioDuplicado,
 } from "../utils/patrimoniosEquipamentos";
 import {
+  associarEquipamentoMestreAUnidade,
+  avaliarReutilizacaoEquipamentoMestre,
   obterEquipamentosPatrimonio,
   salvarEquipamentosPatrimonio,
   sincronizarPatrimoniosMestres,
@@ -128,6 +131,19 @@ export default function PatrimonioEquipamentosModal({
     duplicidade?.tipo === "historico"
       ? `O patrimônio ${numero} já foi utilizado anteriormente.`
       : `O patrimônio ${numero} já está vinculado a outro equipamento.`;
+  const mensagemIndisponibilidade = (avaliacao, numero) => {
+    const mensagens = {
+      em_manutencao: `O patrimônio ${numero} está em manutenção.`,
+      indisponivel: `O patrimônio ${numero} está indisponível.`,
+      baixado: `O patrimônio ${numero} está baixado.`,
+      inativo: `O patrimônio ${numero} está inativo.`,
+      locado: `O patrimônio ${numero} está locado em outra unidade.`,
+      unidade_ativa: `O patrimônio ${numero} já está vinculado a outra unidade ativa.`,
+      edicao_simultanea: `O patrimônio ${numero} está sendo informado em outro equipamento desta conferência.`,
+    };
+    return mensagens[avaliacao?.motivo] ||
+      `O patrimônio ${numero} já está vinculado a outro equipamento.`;
+  };
 
   const salvarCadastros = () => {
     if (salvando || salvamentoConferenciaEmAndamento.current) return;
@@ -170,13 +186,31 @@ export default function PatrimonioEquipamentosModal({
       }
     }
     const preenchidos = linhas.filter(({ numero }) => numero);
+    const mestresAtuais = obterEquipamentosPatrimonio();
+    const avaliacoes = new Map();
     for (const entrada of preenchidos) {
+      const avaliacao = avaliarReutilizacaoEquipamentoMestre({
+        numero: entrada.numero,
+        idItemAtual: entrada.idItem,
+        equipamentos: mestresAtuais,
+        registrosPatrimonio: registros,
+        equipamentosAtivos,
+        edicoes: preenchidos,
+      });
+      if (!avaliacao.permitido) {
+        return alert(mensagemIndisponibilidade(avaliacao, entrada.numero));
+      }
+      avaliacoes.set(entrada.idItem, avaliacao);
       const duplicidade = verificarPatrimonioDuplicado(
         entrada.numero,
         entrada.idItem,
         registros,
         equipamentosAtivos,
-        preenchidos
+        preenchidos,
+        {
+          idsRegistrosPermitidos:
+            avaliacao.idsRegistrosTransferiveis || [],
+        }
       );
       if (duplicidade) return alert(mensagemDuplicidade(duplicidade, entrada.numero));
     }
@@ -184,16 +218,37 @@ export default function PatrimonioEquipamentosModal({
     setSalvando(true);
     try {
       let atualizados = registros;
+      let mestresAtualizados = mestresAtuais;
       preenchidos
         .filter(({ atual }) => !atual)
-        .forEach(({ item, numero }) => {
-          atualizados = registrarCadastroInicialPatrimonio({
-            registros: atualizados,
-            item,
-            numeroNovo: numero,
-            data: dataConferencia,
-            obraId: contexto.obra?.id || "",
-          });
+        .forEach(({ item, idItem, numero }) => {
+          const avaliacao = avaliacoes.get(idItem);
+          if (avaliacao?.mestre) {
+            atualizados = registrarReutilizacaoPatrimonio({
+              registros: atualizados,
+              item,
+              numeroNovo: numero,
+              data: dataConferencia,
+              obraId: contexto.obra?.id || "",
+              idsRegistrosOrigem:
+                avaliacao.idsRegistrosTransferiveis || [],
+            });
+            mestresAtualizados = associarEquipamentoMestreAUnidade({
+              equipamentos: mestresAtualizados,
+              idEquipamento: avaliacao.mestre.idEquipamento,
+              idItemDestino: idItem,
+              data: dataConferencia,
+              obraId: contexto.obra?.id || "",
+            });
+          } else {
+            atualizados = registrarCadastroInicialPatrimonio({
+              registros: atualizados,
+              item,
+              numeroNovo: numero,
+              data: dataConferencia,
+              obraId: contexto.obra?.id || "",
+            });
+          }
         });
       const novosAjustes = linhas.map(({ item, configuracao }) =>
         criarAjusteConfiguracao({
@@ -219,7 +274,7 @@ export default function PatrimonioEquipamentosModal({
       salvarRegistrosPatrimonio(atualizados);
       salvarAjustesConfiguracaoEquipamentos(ajustesAtualizados);
       const mestresSincronizados = sincronizarPatrimoniosMestres(
-        obterEquipamentosPatrimonio(),
+        mestresAtualizados,
         atualizados
       ).map((mestre) => {
         const linha = linhas.find(
@@ -233,7 +288,7 @@ export default function PatrimonioEquipamentosModal({
           : mestre;
       });
       salvarEquipamentosPatrimonio(mestresSincronizados);
-      onRegistrosAlterados(atualizados);
+      onRegistrosAlterados(atualizados, mestresSincronizados);
       alert("Conferência cadastral salva com sucesso.");
     } finally {
       salvamentoConferenciaEmAndamento.current = false;
@@ -251,7 +306,9 @@ export default function PatrimonioEquipamentosModal({
       numero,
       obterIdItemPatrimonio(troca.item),
       registros,
-      equipamentosAtivos
+      equipamentosAtivos,
+      [],
+      { bloquearHistorico: true }
     );
     if (duplicidade) return alert(mensagemDuplicidade(duplicidade, numero));
     setSalvando(true);

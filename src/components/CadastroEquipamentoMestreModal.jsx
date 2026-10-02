@@ -51,7 +51,9 @@ export default function CadastroEquipamentoMestreModal({
       numero,
       equipamento?.idItemOrigem || "",
       registrosPatrimonio,
-      equipamentosAtivos
+      equipamentosAtivos,
+      [],
+      { bloquearHistorico: true }
     );
     if (repetidoMestre || duplicidade) {
       alert(
