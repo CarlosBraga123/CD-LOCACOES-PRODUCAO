@@ -179,14 +179,54 @@ export const excluirEquipamentoPatrimonioSeguro = ({
   };
 };
 
+const tiposBalancinhoCompativeis = (item = {}, equipamento = {}) =>
+  item.equipamento === "Balancinho" &&
+  equipamento.equipamento === "Balancinho" &&
+  (item.tipoBalancinho || "Eletrico") ===
+    (equipamento.tipoBalancinho || "Eletrico");
+
 export const obterIdEquipamentoDoItem = (item, equipamentos = []) => {
-  if (item?.idEquipamento) return String(item.idEquipamento);
+  const idEquipamentoExplicito = String(item?.idEquipamento || "").trim();
+  if (idEquipamentoExplicito) {
+    return equipamentos.some(
+      (equipamento) =>
+        String(equipamento.idEquipamento || "") === idEquipamentoExplicito
+    )
+      ? idEquipamentoExplicito
+      : "";
+  }
+
   const idItem = obterIdItemPatrimonio(item);
-  return String(
-    equipamentos.find(
+  const equipamentoPorOrigem = idItem
+    ? equipamentos.find(
       (equipamento) => String(equipamento.idItemOrigem || "") === idItem
-    )?.idEquipamento || ""
+    )
+    : null;
+  if (equipamentoPorOrigem?.idEquipamento) {
+    return String(equipamentoPorOrigem.idEquipamento);
+  }
+
+  if (item?.equipamento !== "Balancinho") return "";
+
+  const patrimonio = normalizarNumeroPatrimonio(
+    item?.numeroPatrimonio || item?.numeroPatrimonioAtual
   );
+  if (!patrimonio) return "";
+
+  const candidatos = equipamentos.filter(
+    (equipamento) =>
+      equipamento.ativo !== false &&
+      !["BAIXADO", "INDISPONIVEL"].includes(
+        equipamento.situacaoAdministrativa
+      ) &&
+      normalizarNumeroPatrimonio(equipamento.numeroPatrimonioAtual) ===
+        patrimonio &&
+      tiposBalancinhoCompativeis(item, equipamento)
+  );
+
+  return candidatos.length === 1
+    ? String(candidatos[0].idEquipamento || "")
+    : "";
 };
 
 const motivoIndisponibilidadeMestre = {

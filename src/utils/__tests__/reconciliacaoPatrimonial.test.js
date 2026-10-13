@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { obterUnidadesEquipamentosAtivos } from "../equipamentosAtivos";
 import {
   montarIdentificadoresEquipamentosAtivos,
+  obterIdEquipamentoDoItem,
   obterEquipamentosDisponiveis,
 } from "../equipamentosPatrimonio";
 import { reconciliarPatrimonioAposAtividades } from "../reconciliacaoPatrimonial";
@@ -123,6 +124,142 @@ const disponiveis = (resultado) => {
 };
 
 describe("reconciliação patrimonial pelo estado operacional atual", () => {
+  it("associa instalação legada de Balancinho ao único mestre compatível pelo patrimônio", () => {
+    const entradaLegada = {
+      ...instalacao({ id: "instalacao-legada" }),
+      itensEquipamentos: undefined,
+    };
+    const resultado = reconciliar(
+      [entradaLegada],
+      [{
+        ...mestre("0140"),
+        idEquipamento: "equipamento-fisico-0140",
+        idItemOrigem: "legado:instalacao-anterior:0",
+      }]
+    );
+
+    expect(resultado.equipamentosAtivos[0].idEquipamento).toBe(
+      "equipamento-fisico-0140"
+    );
+    expect(situacao(resultado, "0140")).toBe("LOCADO");
+    expect(disponiveis(resultado)).not.toContain("0140");
+  });
+
+  it("prioriza idEquipamento explícito válido mesmo com patrimônio divergente", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          idEquipamento: "equipamento-0150",
+          equipamento: "Balancinho",
+          tipoBalancinho: "Eletrico",
+          numeroPatrimonio: "0140",
+        },
+        [mestre("0140"), mestre("0150")]
+      )
+    ).toBe("equipamento-0150");
+  });
+
+  it("não aplica fallback quando idEquipamento explícito é inválido", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          idEquipamento: "equipamento-inexistente",
+          equipamento: "Balancinho",
+          tipoBalancinho: "Eletrico",
+          numeroPatrimonio: "0140",
+        },
+        [mestre("0140")]
+      )
+    ).toBe("");
+  });
+
+  it("preserva associação histórica por identidade legado", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          idUnidade: "legado:atividade-antiga:0",
+          idItemOrigem: "legado:atividade-antiga:0",
+          equipamento: "Balancinho",
+          tipoBalancinho: "Eletrico",
+          numeroPatrimonio: "0140",
+        },
+        [{ ...mestre("0140"), idItemOrigem: "legado:atividade-antiga:0" }]
+      )
+    ).toBe("equipamento-0140");
+  });
+
+  it("não escolhe arbitrariamente entre mestres duplicados", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          equipamento: "Balancinho",
+          tipoBalancinho: "Eletrico",
+          numeroPatrimonio: "0140",
+        },
+        [mestre("0140"), { ...mestre("0140"), idEquipamento: "duplicado-0140" }]
+      )
+    ).toBe("");
+  });
+
+  it.each([
+    ["inativo", { ativo: false }],
+    ["BAIXADO", { situacaoAdministrativa: "BAIXADO" }],
+    ["INDISPONIVEL", { situacaoAdministrativa: "INDISPONIVEL" }],
+  ])("não associa mestre %s pelo fallback", (_descricao, alteracoes) => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          equipamento: "Balancinho",
+          tipoBalancinho: "Eletrico",
+          numeroPatrimonio: "0140",
+        },
+        [{ ...mestre("0140"), ...alteracoes }]
+      )
+    ).toBe("");
+  });
+
+  it("exige subtipo de Balancinho compatível", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          equipamento: "Balancinho",
+          tipoBalancinho: "Manual",
+          numeroPatrimonio: "0140",
+        },
+        [mestre("0140")]
+      )
+    ).toBe("");
+  });
+
+  it("não altera o comportamento de Mini Grua", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        {
+          equipamento: "Mini Grua",
+          tipoMiniGrua: "500kg",
+          numeroPatrimonio: "0500",
+        },
+        [{
+          idEquipamento: "mini-grua-0500",
+          numeroPatrimonioAtual: "0500",
+          equipamento: "Mini Grua",
+          tipoMiniGrua: "500kg",
+          situacaoAdministrativa: "NO_GALPAO",
+          ativo: true,
+        }]
+      )
+    ).toBe("");
+  });
+
+  it("não aplica fallback sem número de patrimônio", () => {
+    expect(
+      obterIdEquipamentoDoItem(
+        { equipamento: "Balancinho", tipoBalancinho: "Eletrico" },
+        [mestre("0140")]
+      )
+    ).toBe("");
+  });
+
   it("Instalação individualizada deixa o patrimônio indisponível", () => {
     const resultado = reconciliar([instalacao()], [mestre("0140")]);
     expect(situacao(resultado, "0140")).toBe("LOCADO");
