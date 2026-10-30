@@ -5,6 +5,7 @@ import {
   unidadeCompativelComAtividade,
 } from "./unidadesEquipamentos";
 import { itemPossuiVinculoPatrimonial } from "./unidadesEquipamentos";
+import { ehKitIndependente } from './kitsIndependentes';
 import {
   ajustePertenceUnidade,
   aplicarAjusteConfiguracaoNaUnidade,
@@ -178,7 +179,10 @@ export const calcularPeriodosLocacao = ({
 
   atividadesBase
     .filter((atividade) => atividade.dataLiberacao)
-    .sort((a, b) => new Date(a.dataLiberacao) - new Date(b.dataLiberacao))
+    .sort((a, b) => (new Date(a.dataLiberacao) - new Date(b.dataLiberacao)) ||
+      (ehKitIndependente(a) && ehKitIndependente(b)
+        ? Number(atividadeIniciaLocacao(b)) - Number(atividadeIniciaLocacao(a)) || String(a.id).localeCompare(String(b.id))
+        : 0))
     .map((atividade) => {
       if (
         atividade.pendenteVinculoPatrimonio !== true ||
@@ -222,7 +226,11 @@ export const calcularPeriodosLocacao = ({
         const abertas = abertasPorGrupo.get(chaveLinha);
 
         while (quantidadeSaida > 0) {
-          const indiceAberta = obterIndiceAbertaParaSaida(abertas);
+          // Kits independentes são quantitativos: consumir lotes em FIFO estável,
+          // sem mudar o casamento quando o relatório muda de competência.
+          const indiceAberta = ehKitIndependente(atividade)
+            ? (abertas.length ? 0 : -1)
+            : obterIndiceAbertaParaSaida(abertas);
           const aberta = indiceAberta >= 0 ? abertas[indiceAberta] : null;
           const quantidadeFechada = aberta
             ? Math.min(aberta.quantidadeRestante, quantidadeSaida)

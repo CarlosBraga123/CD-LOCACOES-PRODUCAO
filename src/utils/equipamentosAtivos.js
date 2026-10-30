@@ -1,4 +1,5 @@
 import { atividadePertenceObra } from "./obras";
+import { ehKitIndependente } from './kitsIndependentes';
 import {
   atividadeEncerraLocacao,
   atividadeIniciaLocacao,
@@ -174,7 +175,9 @@ export const obterUnidadesEquipamentosAtivos = (
           atividadeEncerraLocacao(atividade) ||
           (atividade.itensEquipamentos || []).some(itemPossuiVinculoPatrimonial))
     )
-    .sort(compararOrdemTemporalAtividades)
+    .sort((a,b) => ehKitIndependente(a) && ehKitIndependente(b) && a.dataLiberacao === b.dataLiberacao
+      ? Number(atividadeIniciaLocacao(b)) - Number(atividadeIniciaLocacao(a)) || compararOrdemTemporalAtividades(a,b)
+      : compararOrdemTemporalAtividades(a,b))
     .forEach((atividade) => {
       const dataAtividade = String(atividade.dataLiberacao || "");
       aplicarAjustesAte(dataAtividade, false);

@@ -1,6 +1,7 @@
 export const EQUIPAMENTOS_OPERACAO = {
   BALANCINHO: "Balancinho",
   MINI_GRUA: "Mini Grua",
+  KIT: "Kit Contrapeso",
 };
 
 export const OPERACOES = [
@@ -41,14 +42,14 @@ export const OPERACOES = [
   },
   {
     nome: "Somente aluguel",
-    equipamentosPermitidos: [EQUIPAMENTOS_OPERACAO.BALANCINHO, EQUIPAMENTOS_OPERACAO.MINI_GRUA],
+    equipamentosPermitidos: [EQUIPAMENTOS_OPERACAO.BALANCINHO, EQUIPAMENTOS_OPERACAO.MINI_GRUA, EQUIPAMENTOS_OPERACAO.KIT],
     cobraServico: false,
     iniciaLocacao: true,
     encerraLocacao: false,
   },
   {
     nome: "Somente recolhimento",
-    equipamentosPermitidos: [EQUIPAMENTOS_OPERACAO.BALANCINHO, EQUIPAMENTOS_OPERACAO.MINI_GRUA],
+    equipamentosPermitidos: [EQUIPAMENTOS_OPERACAO.BALANCINHO, EQUIPAMENTOS_OPERACAO.MINI_GRUA, EQUIPAMENTOS_OPERACAO.KIT],
     cobraServico: false,
     iniciaLocacao: false,
     encerraLocacao: true,

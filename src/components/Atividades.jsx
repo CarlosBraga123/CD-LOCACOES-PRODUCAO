@@ -4,6 +4,7 @@ import { db } from "../firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { obterChaveObra, obterObraDaAtividade, normalizarTexto } from "../utils/obras";
 import { obterOperacoes, obterRegraOperacao } from "../utils/regrasOperacao";
+import { ehKitIndependente, SERVICOS_KIT, validarKitIndependente } from '../utils/kitsIndependentes';
 import OrdemServico from "./OrdemServico";
 import Contrato from "./documentos/Contrato";
 import { obterTipoContrato } from "../utils/contrato";
@@ -407,6 +408,9 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
   };
 
   const obterServicosPermitidos = (equipamento) => {
+    // Permite escolher a operação antes do equipamento, sem selecionar
+    // um Balancinho fictício para revelar a opção de kit independente.
+    if (!equipamento) return SERVICOS_KIT;
     return obterOperacoes(equipamento).map((operacao) => operacao.nome);
   };
 
@@ -468,6 +472,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
   };
 
   const obterChaveLocacao = () => {
+    if (ehKitIndependente(form)) return 'Balancinho-Contrapeso';
     if (form.equipamento === "Balancinho") {
       const tipo = form.tipoBalancinho === "Manual" ? "Manual" : "Eletrico";
       return `Balancinho-${tipo}`;
@@ -956,6 +961,10 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
   };
 
   const validarContrapeso = (atividade) => {
+    if (ehKitIndependente(atividade)) {
+      try { validarKitIndependente(atividade, atividades, obterObraDaAtividade(atividade, obras)); return true; }
+      catch (erro) { alert(erro.message); return false; }
+    }
     if (atividade.equipamento !== "Balancinho") return true;
 
     const alteracaoContrapeso = normalizarAlteracaoContrapeso(atividade);
@@ -1094,6 +1103,8 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       return;
     }
 
+    if (ehKitIndependente(form) && !validarContrapeso(form)) return;
+
     const quantidadeSolicitada = Math.max(1, Number(form.quantidade) || 1);
     const itensAtuaisVinculo = Array.isArray(form.itensEquipamentos)
       ? form.itensEquipamentos
@@ -1102,7 +1113,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
       (numero) => String(numero || "").trim()
     );
     const vinculoPosteriorAtivo =
-      Boolean(form.equipamento) &&
+      !ehKitIndependente(form) && Boolean(form.equipamento) &&
       (form.pendenteVinculoPatrimonio === true ||
         (itensAtuaisVinculo.length > 0
           ? itensAtuaisVinculo.some(
@@ -1170,6 +1181,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
 
     if (
       servicoEntradaLocacaoInicial(form.servico) &&
+      !ehKitIndependente(form) &&
       !vinculoPosteriorAtivo
     ) {
       const patrimoniosEntrada = itensEquipamentos
@@ -1367,6 +1379,12 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           : "NAO_APLICAVEL",
       saidaPatrimonialProvisoria:
         encerramentoPatrimonial && pendenciaVinculavel,
+      ...(ehKitIndependente(form) ? {
+        usaContrapeso: false, alteracaoContrapeso: 'nenhuma', quantidadeContrapeso: 0,
+        itensEquipamentos: undefined, numerosPatrimonio: [], pendenteVinculoPatrimonio: false,
+        statusVinculoPatrimonio: 'NAO_APLICAVEL', saidaPatrimonialProvisoria: false,
+        valorUnitarioServico: 0, adicionalServicoContrapeso: 0, valorTotalServico: 0,
+      } : {}),
     };
 
     const novas = form.id
@@ -1375,7 +1393,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
 
     setAtividades(novas);
     localStorage.setItem("atividades", JSON.stringify(novas));
-    posProcessarPatrimonio(novas, {
+    if (!ehKitIndependente(novaAtividade)) posProcessarPatrimonio(novas, {
       data: novaAtividade.dataLiberacao || novaAtividade.dataAgendamento,
       obraOrigemId: novaAtividade.obraId,
     });
@@ -1596,6 +1614,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
     ]
   );
   const mostrarSelecaoUnidadesAtivas =
+    !ehKitIndependente(form) &&
     Boolean(obraSelecionadaNoFormulario) &&
     Boolean(form.equipamento) &&
     servicoSelecionaUnidadesAtivas(form.servico) &&
@@ -1872,6 +1891,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           value={form.equipamento ?? ""}
           onChange={(e) => {
             const equipamento = e.target.value;
+            if (equipamento === 'Kit Contrapeso' || ehKitIndependente(form)) setValoresEditadosManual({});
             const servico = obterServicoValidoParaEquipamento(
               equipamento,
               form.servico
@@ -1890,6 +1910,11 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
               ...(servicoSelecionaUnidadesAtivas(servico)
                 ? { quantidade: 0, numerosPatrimonio: [] }
                 : {}),
+              ...(equipamento === 'Kit Contrapeso' ? {
+                quantidade: 1, numerosPatrimonio: [], pendenteVinculoPatrimonio: false,
+                tamanho: '', tamanhoAnterior: '', tamanhoNovo: '',
+                valorMensalLocacao: '', valorTotalMensalLocacao: '', valoresCongelados: undefined,
+              } : {}),
             };
 
             setForm({
@@ -1910,6 +1935,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           <option value="">Equipamento</option>
           <option>Balancinho</option>
           <option>Mini Grua</option>
+          {SERVICOS_KIT.includes(form.servico) && <option>Kit Contrapeso</option>}
         </select>
 
         {form.equipamento === "Balancinho" && !mostrarSelecaoUnidadesAtivas && (
@@ -1977,7 +2003,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
             const formularioAtualizado = {
               ...form,
               servico,
-              ...(servicoSelecionaUnidadesAtivas(servico)
+              ...(servicoSelecionaUnidadesAtivas(servico) && !ehKitIndependente(form)
                 ? {
                     itensEquipamentos: undefined,
                     quantidade: 0,
@@ -2013,7 +2039,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           ))}
         </select>
 
-        {form.equipamento && permiteVinculoPatrimonioPosterior(form.servico) && (
+        {form.equipamento && !ehKitIndependente(form) && permiteVinculoPatrimonioPosterior(form.servico) && (
           <label className="flex items-center gap-2 rounded-xl border bg-amber-50 p-3 text-sm font-medium text-amber-900">
             <input
               type="checkbox"
@@ -2066,7 +2092,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
           </label>
         )}
 
-        {servicoEntradaLocacaoInicial(form.servico) && form.equipamento && (
+        {servicoEntradaLocacaoInicial(form.servico) && form.equipamento && !ehKitIndependente(form) && (
           <section className="space-y-2 rounded-xl border bg-blue-50 p-3">
             <div>
               <h3 className="font-semibold">Equipamentos cadastrados disponíveis</h3>
@@ -2579,6 +2605,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
         )}
 
         {["Instalação", "Somente aluguel"].includes(form.servico) &&
+          !ehKitIndependente(form) &&
           !mostrarItensEquipamentosFormulario &&
           !mostrarSelecaoUnidadesAtivas && (
         <div className="grid gap-3 border rounded-xl p-3 bg-gray-50">
@@ -2775,6 +2802,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
             <option value="">Todos os equipamentos</option>
             <option value="Balancinho">Balancinho</option>
             <option value="Mini Grua">Mini Grua</option>
+            <option value="Kit Contrapeso">Kit Contrapeso</option>
           </select>
 
           <input
@@ -3005,7 +3033,7 @@ export default function Atividades({ contextoNavegacao, limparContextoNavegacao 
                       );
                       setAtividades(atualizadas);
                       localStorage.setItem("atividades", JSON.stringify(atualizadas));
-                      posProcessarPatrimonio(atualizadas, {
+                      if (!ehKitIndependente(item)) posProcessarPatrimonio(atualizadas, {
                         data: dataLiberacao,
                         obraOrigemId: item.obraId || "",
                       });

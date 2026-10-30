@@ -240,6 +240,7 @@ export default function RelatorioLocacao({ contextoNavegacao = null }) {
     };
 
     const obterChavesLocacao = (atividade) => {
+      if (atividade.equipamento === 'Kit Contrapeso') return { base: 'Balancinho-Contrapeso', adicionalContrapeso: null };
       if (atividade.equipamento === "Balancinho") {
         const tipo = atividade.tipoBalancinho === "Manual" ? "Manual" : "Eletrico";
         return {

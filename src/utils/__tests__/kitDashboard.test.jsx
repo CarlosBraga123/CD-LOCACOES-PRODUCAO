@@ -1,0 +1,20 @@
+import React,{useState,useEffect} from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {it,expect,vi,afterEach} from 'vitest';
+import Dashboard from '../../components/Dashboard';
+vi.mock('react',async()=>{const real=await vi.importActual('react');return {...real,useState:vi.fn(real.useState),useEffect:vi.fn()};});
+afterEach(()=>{vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
+it('Dashboard separa saldo independente e cobra apenas locação congelada',()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-07-30T12:00:00Z'));
+ const data=new Map();vi.stubGlobal('localStorage',{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)});
+ const entrada={id:'kit',obraId:'o',equipamento:'Kit Contrapeso',servico:'Somente aluguel',quantidade:3,dataLiberacao:'2026-07-16',iniciaLocacao:true,encerraLocacao:false,cobraServico:false,valoresCongelados:{locacaoMensalUnitario:600,totalLocacaoMensal:1800,totalServico:0}};
+ data.set('atividades',JSON.stringify([entrada,{...entrada,id:'saida',quantidade:1,servico:'Somente recolhimento',dataLiberacao:'2026-07-25',iniciaLocacao:false,encerraLocacao:true}]));
+ data.set('obras',JSON.stringify([{id:'o',nome:'Obra fictícia',construtora:'Construtora fictícia',tabelaComercial:{locacoes:{'Balancinho-Contrapeso':999}}}]));
+ data.set('construtoras','[]');data.set('tarefas','[]');
+ const setters=[];let i=0,effect;
+ useState.mockImplementation(initial=>{const setter=vi.fn();setters[i++]=setter;return [initial,setter];});
+ useEffect.mockImplementation(fn=>{effect=fn;});
+ renderToStaticMarkup(<Dashboard/>);effect();
+ const cards=setters[4].mock.calls[0][0];expect(cards.find(c=>c.titulo==='Kits Contrapeso Independentes').valor).toBe(2);expect(cards.find(c=>c.titulo==='Balancinhos Ativos').valor).toBe(0);
+ const julho=setters[6].mock.calls[0][0].find(m=>m.mes==='2026-07');expect(julho).toMatchObject({servicos:0,locacoes:840,totalGeral:840});
+});

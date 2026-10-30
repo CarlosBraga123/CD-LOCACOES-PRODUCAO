@@ -47,7 +47,7 @@ const criarResumo = (linhas) => {
     manuais: linhas.filter((linha) => linha.equipamento === "Balancinho Manual").length,
     miniGruas500: linhas.filter((linha) => linha.equipamento === "Mini Grua 500 kg").length,
     miniGruas1T: linhas.filter((linha) => linha.equipamento === "Mini Grua 1 T").length,
-    kitsContrapeso: linhas.filter((linha) => linha.usaContrapeso).length,
+    kitsContrapeso: linhas.filter((linha) => linha.usaContrapeso || linha.equipamento === 'Kit Contrapeso').length,
   };
   const categorias = [
     { chave: "eletricos", rotulo: "Balancinhos Elétricos", quantidade: resumo.eletricos },
@@ -59,8 +59,8 @@ const criarResumo = (linhas) => {
   return {
     ...resumo,
     categorias,
-    totalEquipamentos: linhas.length,
-    totalGeral: linhas.length + resumo.kitsContrapeso,
+    totalEquipamentos: linhas.filter(linha => linha.equipamento !== 'Kit Contrapeso').length,
+    totalGeral: linhas.length + linhas.filter(linha => linha.usaContrapeso).length,
   };
 };
 

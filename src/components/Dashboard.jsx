@@ -124,6 +124,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
 
     const ativosBalancinho = contarAtivosPorTipo("Balancinho", obterTipoBalancinho);
     const ativosMiniGrua = contarAtivosPorTipo("Mini Grua", obterTipoMiniGrua);
+    const kitsIndependentes = contarAtivosPorTipo('Kit Contrapeso', () => 'Independentes');
 
     const mesAtual = new Date().toISOString().slice(0, 7);
     const atividadesMes = todas.filter((atividade) => {
@@ -193,6 +194,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     };
 
     const obterChavesLocacao = (atividade) => {
+      if (atividade.equipamento === 'Kit Contrapeso') return { base: 'Balancinho-Contrapeso', adicionalContrapeso: null };
       if (atividade.equipamento === "Balancinho") {
         const tipo = atividade.tipoBalancinho === "Manual" ? "Manual" : "Eletrico";
         return { base: `Balancinho-${tipo}`, adicionalContrapeso: "Balancinho-Contrapeso" };
@@ -334,6 +336,7 @@ export default function Dashboard({ abrirAtividade, navegar }) {
       },
       { titulo: "Balancinhos Ativos", valor: ativosBalancinho.total, cor: "bg-purple-100", detalhes: ativosBalancinho.porTipo },
       { titulo: "Mini Gruas Ativas", valor: ativosMiniGrua.total, cor: "bg-purple-200", detalhes: ativosMiniGrua.porTipo },
+      ...(todas.some(a => a.equipamento === 'Kit Contrapeso') ? [{ titulo: 'Kits Contrapeso Independentes', valor: kitsIndependentes.total, cor: 'bg-purple-100', detalhes: kitsIndependentes.porTipo }] : []),
     ]);
   }, []);
 
