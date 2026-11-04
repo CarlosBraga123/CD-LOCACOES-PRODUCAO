@@ -4,7 +4,7 @@ import {it,expect,vi,afterEach} from 'vitest';
 import Dashboard from '../../components/Dashboard';
 vi.mock('react',async()=>{const real=await vi.importActual('react');return {...real,useState:vi.fn(real.useState),useEffect:vi.fn()};});
 afterEach(()=>{vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
-it('Dashboard separa saldo independente e cobra apenas locação congelada',()=>{
+it('Dashboard omite o card de kits independentes e cobra apenas locação congelada',()=>{
  vi.useFakeTimers();vi.setSystemTime(new Date('2026-07-30T12:00:00Z'));
  const data=new Map();vi.stubGlobal('localStorage',{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)});
  const entrada={id:'kit',obraId:'o',equipamento:'Kit Contrapeso',servico:'Somente aluguel',quantidade:3,dataLiberacao:'2026-07-16',iniciaLocacao:true,encerraLocacao:false,cobraServico:false,valoresCongelados:{locacaoMensalUnitario:600,totalLocacaoMensal:1800,totalServico:0}};
@@ -15,6 +15,6 @@ it('Dashboard separa saldo independente e cobra apenas locação congelada',()=>
  useState.mockImplementation(initial=>{const setter=vi.fn();setters[i++]=setter;return [initial,setter];});
  useEffect.mockImplementation(fn=>{effect=fn;});
  renderToStaticMarkup(<Dashboard/>);effect();
- const cards=setters[4].mock.calls[0][0];expect(cards.find(c=>c.titulo==='Kits Contrapeso Independentes').valor).toBe(2);expect(cards.find(c=>c.titulo==='Balancinhos Ativos').valor).toBe(0);
+ const cards=setters[4].mock.calls[0][0];expect(cards.some(c=>c.titulo==='Kits Contrapeso Independentes')).toBe(false);expect(cards.find(c=>c.titulo==='Balancinhos Ativos').valor).toBe(0);
  const julho=setters[6].mock.calls[0][0].find(m=>m.mes==='2026-07');expect(julho).toMatchObject({servicos:0,locacoes:840,totalGeral:840});
 });

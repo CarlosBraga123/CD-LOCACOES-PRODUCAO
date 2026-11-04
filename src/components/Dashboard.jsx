@@ -124,7 +124,6 @@ export default function Dashboard({ abrirAtividade, navegar }) {
 
     const ativosBalancinho = contarAtivosPorTipo("Balancinho", obterTipoBalancinho);
     const ativosMiniGrua = contarAtivosPorTipo("Mini Grua", obterTipoMiniGrua);
-    const kitsIndependentes = contarAtivosPorTipo('Kit Contrapeso', () => 'Independentes');
 
     const mesAtual = new Date().toISOString().slice(0, 7);
     const atividadesMes = todas.filter((atividade) => {
@@ -336,7 +335,6 @@ export default function Dashboard({ abrirAtividade, navegar }) {
       },
       { titulo: "Balancinhos Ativos", valor: ativosBalancinho.total, cor: "bg-purple-100", detalhes: ativosBalancinho.porTipo },
       { titulo: "Mini Gruas Ativas", valor: ativosMiniGrua.total, cor: "bg-purple-200", detalhes: ativosMiniGrua.porTipo },
-      ...(todas.some(a => a.equipamento === 'Kit Contrapeso') ? [{ titulo: 'Kits Contrapeso Independentes', valor: kitsIndependentes.total, cor: 'bg-purple-100', detalhes: kitsIndependentes.porTipo }] : []),
     ]);
   }, []);
 
@@ -401,9 +399,9 @@ export default function Dashboard({ abrirAtividade, navegar }) {
     <div className="p-4 space-y-6">
       <h2 className="text-xl font-bold mb-4">Painel</h2>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-7">
+      <div className="flex flex-wrap gap-4">
         {cards.map((card, idx) => (
-          <button type="button" key={idx} onClick={() => card.acao === "pendencias-operacionais" && navegar?.("atividades", { destino: "atividades", acao: "filtrar-pendencias-operacionais" })} className={`${card.cor} p-4 rounded shadow-sm text-left ${card.acao ? "cursor-pointer hover:ring-2 hover:ring-amber-300" : ""}`}>
+          <button type="button" key={idx} onClick={() => card.acao === "pendencias-operacionais" && navegar?.("atividades", { destino: "atividades", acao: "filtrar-pendencias-operacionais" })} className={`${card.cor} min-w-0 grow basis-full rounded p-4 text-left shadow-sm sm:basis-[calc(50%-0.5rem)] md:basis-[calc(25%-0.75rem)] lg:basis-0 ${card.acao ? "cursor-pointer hover:ring-2 hover:ring-amber-300" : ""}`}>
             <div className="text-sm text-gray-600">{card.titulo}</div>
             <div className="text-2xl font-bold">{card.valor}</div>
             {card.detalhes && (

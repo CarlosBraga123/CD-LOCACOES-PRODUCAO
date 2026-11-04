@@ -50,3 +50,17 @@ describe('locação quantitativa independente de kit contrapeso',()=>{
  });
  it('equipamentos por obra sem duplicidade e sem pendência patrimonial',()=>{const as=[entrada({quantidade:3}),saida()];const eq=montarEquipamentosPorObra({obra,atividades:as});expect(eq.linhas).toHaveLength(2);expect(eq.resumo).toMatchObject({kitsContrapeso:2,totalEquipamentos:0,totalGeral:2});expect(obterPendenciasOperacionais(as,{obras:[obra]})).toHaveLength(0);});
 });
+
+it('consolida um acessório em Therezinha e um kit independente em José Rocha', () => {
+ const therezinha = {...obra, id:'obra-teste-a', nome:'Therezinha'};
+ const jose = {...obra, id:'obra-teste-b', nome:'José Rocha'};
+ const atividades = [
+  entrada({id:'acessorio', obraId:therezinha.id, equipamento:'Balancinho', tipoBalancinho:'Eletrico', servico:'Instalação', usaContrapeso:true}),
+  entrada({obraId:jose.id, quantidade:3}),
+  saida({obraId:jose.id, quantidade:2}),
+  entrada({id:'agendado', obraId:jose.id, dataLiberacao:'', quantidade:9}),
+ ];
+ const contar = obra => montarEquipamentosPorObra({obra, atividades}).totalKitsContrapeso;
+ expect([contar(therezinha), contar(jose)]).toEqual([1, 1]);
+ expect(contar({...jose, id:'obra-homonima'})).toBe(0);
+});

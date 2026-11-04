@@ -1,3 +1,4 @@
+import { montarEquipamentosPorObra } from "../utils/equipamentosPorObra";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Boxes, ChevronDown, ChevronUp, ClipboardList, TriangleAlert } from "lucide-react";
@@ -161,41 +162,34 @@ export default function ControlePatrimonios() {
     galpao: patrimoniosIndividuais.filter((item) => item.situacao === "NO_GALPAO").length,
     pendentes: patrimoniosIndividuais.filter(pendenteConferencia).length,
   }), [ajustesConfiguracao, controleKits.quantidadeTotal, patrimoniosIndividuais]);
-  const kitsLocados = useMemo(
-    () => ativos.filter((item) => item.equipamento === "Balancinho" && item.usaContrapeso === true).length,
-    [ativos]
-  );
+  const locaisKits = useMemo(() => obras.flatMap((obra) => {
+    const { totalKitsContrapeso: quantidade } = montarEquipamentosPorObra({
+      obra, atividades, registrosPatrimonio: registros, equipamentosMestres,
+    });
+    if (!quantidade) return [];
+    const construtora = construtoras.find((candidata) =>
+      obra.construtoraId && candidata.id
+        ? String(candidata.id) === String(obra.construtoraId)
+        : normalizar(candidata.nome) === normalizar(obra.construtora)
+    );
+    return [{
+      obraId: String(obra.id ?? ""),
+      construtoraId: String(construtora?.id ?? obra.construtoraId ?? ""),
+      obra: obra.nome || "Obra não localizada",
+      construtora: construtora?.nome || obra.construtora || "Construtora não localizada",
+      quantidade,
+    }];
+  }).sort((a, b) =>
+    a.construtora.localeCompare(b.construtora, "pt-BR") ||
+    a.obra.localeCompare(b.obra, "pt-BR")
+  ), [atividades, construtoras, equipamentosMestres, obras, registros, versaoDados]);
+  const kitsLocados = locaisKits.reduce((total, local) => total + local.quantidade, 0);
   const resumoKits = {
     total: controleKits.quantidadeTotal,
     locados: kitsLocados,
     galpao: Math.max(0, controleKits.quantidadeTotal - kitsLocados),
     pendentes: Math.max(0, kitsLocados - controleKits.quantidadeTotal),
   };
-  const locaisKits = useMemo(() => {
-    const porObra = new Map();
-    ativos
-      .filter((item) => item.equipamento === "Balancinho" && item.usaContrapeso === true)
-      .forEach((item) => {
-        const obra = obras.find((candidata) => String(candidata.id) === String(item.obraId));
-        const construtora = construtoras.find((candidata) =>
-          obra?.construtoraId && candidata?.id
-            ? String(candidata.id) === String(obra.construtoraId)
-            : normalizar(candidata?.nome) === normalizar(obra?.construtora)
-        );
-        const chave = String(item.obraId || item.obraNome || "sem-obra");
-        const atual = porObra.get(chave) || {
-          obra: item.obraNome || obra?.nome || "Obra não localizada",
-          construtora: construtora?.nome || obra?.construtora || "Construtora não localizada",
-          quantidade: 0,
-        };
-        atual.quantidade += 1;
-        porObra.set(chave, atual);
-      });
-    return [...porObra.values()].sort((a, b) =>
-      a.construtora.localeCompare(b.construtora, "pt-BR") ||
-      a.obra.localeCompare(b.obra, "pt-BR")
-    );
-  }, [ativos, construtoras, obras]);
   const itemConferidoInventario = (item) => {
     return obterSituacaoConferenciaUnidade(
       item,
@@ -263,9 +257,9 @@ export default function ControlePatrimonios() {
     });
   }, [ajustesConfiguracao, buscaInventario, filtrosInventario, patrimoniosIndividuais]);
   const locaisKitsInventarioFiltrados = useMemo(() => locaisKits.filter((local) =>
-    (filtrosInventario.construtora === "Todos" || normalizar(local.construtora) === normalizar(construtoras.find((item) => String(item.id) === filtrosInventario.construtora)?.nome)) &&
-    (filtrosInventario.obra === "Todos" || normalizar(local.obra) === normalizar(obras.find((item) => String(item.id) === filtrosInventario.obra)?.nome))
-  ), [construtoras, filtrosInventario.construtora, filtrosInventario.obra, locaisKits, obras]);
+    (filtrosInventario.construtora === "Todos" || local.construtoraId === filtrosInventario.construtora) &&
+    (filtrosInventario.obra === "Todos" || local.obraId === filtrosInventario.obra)
+  ), [filtrosInventario.construtora, filtrosInventario.obra, locaisKits]);
   const kitVisivelInventario = useMemo(() => {
     if (!["Todas", "Kit Contrapeso"].includes(filtrosInventario.categoria)) return false;
     if (filtrosInventario.situacao === "PENDENTES") return resumoKits.pendentes > 0;
@@ -537,7 +531,7 @@ export default function ControlePatrimonios() {
           if (categoria.kit && !kitVisivelInventario) return null;
           if (!categoria.kit && filtrosInventario.categoria !== "Todas" && filtrosInventario.categoria !== categoria.nome) return null;
           const aberto = categoriaInventarioAberta === categoria.nome;
-          return <section key={categoria.nome} className={`overflow-hidden rounded-xl border ${aberto ? "border-blue-300 bg-blue-50" : "bg-gray-50"}`}><button type="button" onClick={() => setCategoriaInventarioAberta(aberto ? null : categoria.nome)} className="flex min-h-[64px] w-full items-center justify-between gap-3 p-4 text-left"><span><strong className="block">{categoria.nome}</strong><span className="text-sm text-gray-600">Total: {categoria.total} • Locados: {categoria.locados} • Galpão: {categoria.galpao}{!categoria.kit && ` • Manutenção: ${categoria.manutencao} • Indisponíveis: ${categoria.indisponiveis} • Pendentes: ${categoria.pendentes}`}</span></span>{aberto ? <ChevronUp className="h-5 w-5 shrink-0 text-blue-700" /> : <ChevronDown className="h-5 w-5 shrink-0 text-gray-500" />}</button>{aberto && <div className="space-y-2 border-t border-blue-200 p-3">{categoria.kit ? <><div className="grid grid-cols-3 gap-2">{[["Total", resumoKits.total], ["Locados", resumoKits.locados], ["Galpão", resumoKits.galpao]].map(([r, v]) => <div key={r} className="rounded border bg-white p-2 text-center"><p className="text-xs text-gray-500">{r}</p><p className="text-xl font-bold">{v}</p></div>)}</div>{locaisKitsInventarioFiltrados.map((local) => <div key={`${local.construtora}-${local.obra}`} className="rounded border bg-white p-3 text-sm"><strong>{local.construtora}</strong><p>{local.obra} • {local.quantidade} {local.quantidade === 1 ? "Kit" : "Kits"}</p></div>)}{controleKits.historico.length > 0 && <details className="rounded border bg-white p-3"><summary className="cursor-pointer font-semibold">Histórico quantitativo</summary>{[...controleKits.historico].reverse().map((evento) => <p key={evento.id} className="mt-2 text-sm">{dataBr(evento.data)} • {evento.quantidadeAnterior} → {evento.quantidadeNova} • {evento.motivo}</p>)}</details>}</> : categoria.itens.length ? categoria.itens.map((item) => { const ultimo = ultimaAlteracao(item); return <div key={item.idEquipamento || item.idItem} className="rounded-lg border bg-white p-3 text-sm"><div className="flex justify-between gap-2"><strong className="font-mono text-blue-700">{item.numeroPatrimonioAtual || "Sem patrimônio"}</strong><span>{item.situacao}</span></div><p>{item.construtoraNome && `${item.construtoraNome} • `}{item.obraNome || (item.situacao === "NO_GALPAO" ? "Galpão" : "Sem localização atual")}</p><p className="text-gray-500">Última movimentação: {dataBr(ultimo?.data)}</p>{!itemConferidoInventario(item) && <p className="mt-1 text-amber-700">Conferência pendente</p>}</div>}) : <p className="text-sm text-gray-500">Nenhum equipamento corresponde aos filtros.</p>}</div>}</section>;
+          return <section key={categoria.nome} className={`overflow-hidden rounded-xl border ${aberto ? "border-blue-300 bg-blue-50" : "bg-gray-50"}`}><button type="button" onClick={() => setCategoriaInventarioAberta(aberto ? null : categoria.nome)} className="flex min-h-[64px] w-full items-center justify-between gap-3 p-4 text-left"><span><strong className="block">{categoria.nome}</strong><span className="text-sm text-gray-600">Total: {categoria.total} • Locados: {categoria.locados} • Galpão: {categoria.galpao}{!categoria.kit && ` • Manutenção: ${categoria.manutencao} • Indisponíveis: ${categoria.indisponiveis} • Pendentes: ${categoria.pendentes}`}</span></span>{aberto ? <ChevronUp className="h-5 w-5 shrink-0 text-blue-700" /> : <ChevronDown className="h-5 w-5 shrink-0 text-gray-500" />}</button>{aberto && <div className="space-y-2 border-t border-blue-200 p-3">{categoria.kit ? <><div className="grid grid-cols-3 gap-2">{[["Total", resumoKits.total], ["Locados", resumoKits.locados], ["Galpão", resumoKits.galpao]].map(([r, v]) => <div key={r} className="rounded border bg-white p-2 text-center"><p className="text-xs text-gray-500">{r}</p><p className="text-xl font-bold">{v}</p></div>)}</div>{locaisKitsInventarioFiltrados.map((local) => <div key={local.obraId || `${local.construtora}-${local.obra}`} className="rounded border bg-white p-3 text-sm"><strong>{local.construtora}</strong><p>{local.obra} • {local.quantidade} {local.quantidade === 1 ? "Kit" : "Kits"}</p></div>)}{controleKits.historico.length > 0 && <details className="rounded border bg-white p-3"><summary className="cursor-pointer font-semibold">Histórico quantitativo</summary>{[...controleKits.historico].reverse().map((evento) => <p key={evento.id} className="mt-2 text-sm">{dataBr(evento.data)} • {evento.quantidadeAnterior} → {evento.quantidadeNova} • {evento.motivo}</p>)}</details>}</> : categoria.itens.length ? categoria.itens.map((item) => { const ultimo = ultimaAlteracao(item); return <div key={item.idEquipamento || item.idItem} className="rounded-lg border bg-white p-3 text-sm"><div className="flex justify-between gap-2"><strong className="font-mono text-blue-700">{item.numeroPatrimonioAtual || "Sem patrimônio"}</strong><span>{item.situacao}</span></div><p>{item.construtoraNome && `${item.construtoraNome} • `}{item.obraNome || (item.situacao === "NO_GALPAO" ? "Galpão" : "Sem localização atual")}</p><p className="text-gray-500">Última movimentação: {dataBr(ultimo?.data)}</p>{!itemConferidoInventario(item) && <p className="mt-1 text-amber-700">Conferência pendente</p>}</div>}) : <p className="text-sm text-gray-500">Nenhum equipamento corresponde aos filtros.</p>}</div>}</section>;
         })}</div>
       </>}
       {abaAtiva === "equipamentos" && <>
@@ -718,7 +712,7 @@ export default function ControlePatrimonios() {
       {cadastroMestre !== undefined && <CadastroEquipamentoMestreModal equipamento={cadastroMestre || null} equipamentos={equipamentosMestres} registrosPatrimonio={registros} equipamentosAtivos={ativos} onClose={() => setCadastroMestre(undefined)} onSalvar={(novos, novosRegistros) => { setEquipamentosMestres(novos); setRegistros(novosRegistros); setCadastroMestre(undefined); }} />}
       {situacao && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"><div className="w-full space-y-3 rounded-t-2xl bg-white p-4 sm:max-w-lg sm:rounded-2xl"><h3 className="font-bold">Alterar situação</h3><select value={situacao.nova} onChange={(e) => setSituacao({ ...situacao, nova: e.target.value })} className="w-full rounded border p-2"><option value="NO_GALPAO">No galpão</option><option value="EM_MANUTENCAO">Em manutenção</option><option value="INDISPONIVEL">Indisponível</option><option value="BAIXADO">Baixado</option><option value="SEM_LOCALIZACAO_ATUAL">Sem localização atual</option></select><input type="date" value={situacao.data} onChange={(e) => setSituacao({ ...situacao, data: e.target.value })} className="w-full rounded border p-2" /><input value={situacao.motivo} onChange={(e) => setSituacao({ ...situacao, motivo: e.target.value })} placeholder="Motivo obrigatório" className="w-full rounded border p-2" /><textarea value={situacao.observacao} onChange={(e) => setSituacao({ ...situacao, observacao: e.target.value })} placeholder="Observação" className="w-full rounded border p-2" /><div className="flex justify-end gap-2"><button type="button" onClick={() => setSituacao(null)} className="rounded border px-4 py-2">Cancelar</button><button type="button" onClick={confirmarSituacao} className="rounded bg-blue-600 px-4 py-2 text-white">Salvar</button></div></div></div>}
       {ajusteKits && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"><div className="w-full space-y-3 rounded-t-2xl bg-white p-4 sm:max-w-lg sm:rounded-2xl"><h3 className="text-lg font-bold">Ajustar quantidade de Kits Contrapeso</h3><label className="block text-sm font-medium">Quantidade total<input type="number" min="0" step="1" inputMode="numeric" value={ajusteKits.quantidadeTotal} onChange={(e) => setAjusteKits({ ...ajusteKits, quantidadeTotal: e.target.value })} className="mt-1 w-full rounded border p-3" /></label><label className="block text-sm font-medium">Data<input type="date" value={ajusteKits.data} onChange={(e) => setAjusteKits({ ...ajusteKits, data: e.target.value })} className="mt-1 w-full rounded border p-3" /></label><label className="block text-sm font-medium">Motivo<input value={ajusteKits.motivo} onChange={(e) => setAjusteKits({ ...ajusteKits, motivo: e.target.value })} className="mt-1 w-full rounded border p-3" /></label><label className="block text-sm font-medium">Observação<textarea value={ajusteKits.observacao} onChange={(e) => setAjusteKits({ ...ajusteKits, observacao: e.target.value })} className="mt-1 w-full rounded border p-3" /></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setAjusteKits(null)} className="rounded border px-4 py-2">Cancelar</button><button type="button" onClick={salvarAjusteKits} className="rounded bg-blue-600 px-4 py-2 text-white">Salvar ajuste</button></div></div></div>}
-      {mostrarLocaisKits && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"><div className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 sm:max-w-lg sm:rounded-2xl"><h3 className="text-lg font-bold">Kits Contrapeso locados</h3>{locaisKits.length === 0 ? <p className="mt-3 text-sm text-gray-500">Nenhum Kit Contrapeso está locado.</p> : <div className="mt-3 space-y-2">{locaisKits.map((local) => <div key={`${local.construtora}-${local.obra}`} className="rounded-lg border p-3"><p className="font-semibold">{local.construtora}</p><p className="text-sm text-gray-600">{local.obra}</p><p className="mt-1 text-sm text-blue-700">{local.quantidade} {local.quantidade === 1 ? "Kit" : "Kits"}</p></div>)}</div>}<div className="mt-4 flex justify-end"><button type="button" onClick={() => setMostrarLocaisKits(false)} className="rounded border px-4 py-2">Fechar</button></div></div></div>}
+      {mostrarLocaisKits && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"><div className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 sm:max-w-lg sm:rounded-2xl"><h3 className="text-lg font-bold">Kits Contrapeso locados</h3>{locaisKits.length === 0 ? <p className="mt-3 text-sm text-gray-500">Nenhum Kit Contrapeso está locado.</p> : <div className="mt-3 space-y-2">{locaisKits.map((local) => <div key={local.obraId || `${local.construtora}-${local.obra}`} className="rounded-lg border p-3"><p className="font-semibold">{local.construtora}</p><p className="text-sm text-gray-600">{local.obra}</p><p className="mt-1 text-sm text-blue-700">{local.quantidade} {local.quantidade === 1 ? "Kit" : "Kits"}</p></div>)}</div>}<div className="mt-4 flex justify-end"><button type="button" onClick={() => setMostrarLocaisKits(false)} className="rounded border px-4 py-2">Fechar</button></div></div></div>}
     </div>
   );
 }
